@@ -1,6 +1,8 @@
+param([string]$AppDirectory = 'artifacts\NS2Pro')
 $ErrorActionPreference = 'Stop'
 $ns2Root = Split-Path -Parent $PSScriptRoot
-$ns2Executable = Join-Path $ns2Root 'artifacts\NS2Pro\NS2Pro.exe'
+$ns2AppPath = if ([IO.Path]::IsPathRooted($AppDirectory)) { $AppDirectory } else { Join-Path $ns2Root $AppDirectory }
+$ns2Executable = [IO.Path]::GetFullPath((Join-Path $ns2AppPath 'NS2Pro.exe'))
 if (-not (Test-Path -LiteralPath $ns2Executable)) { throw '请先运行 scripts/build.ps1 -Publish' }
 $ns2Desktop = [Environment]::GetFolderPath('Desktop')
 $ns2ShortcutPath = Join-Path $ns2Desktop 'NS2 Pro 无线连接 PC.lnk'

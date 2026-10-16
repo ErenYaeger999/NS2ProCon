@@ -15,6 +15,7 @@ namespace NS2Pro.App;
 
 public sealed class MainWindow : Window
 {
+    private static readonly string AppVersion = typeof(MainWindow).Assembly.GetName().Version!.ToString(3);
     private readonly AppSettings settings = AppSettings.Load();
     private readonly ControllerService controller;
     private readonly NavigationView navigation = new();
@@ -82,7 +83,7 @@ public sealed class MainWindow : Window
         navigation.PaneHeader = Brand();
         var quit = new Button { Content = "退出应用", FontSize = 11, Padding = new(10, 5, 10, 5) };
         quit.Click += async (_, _) => await ExitAsync();
-        navigation.PaneFooter = new StackPanel { Margin = new(20, 0, 0, 20), Spacing = 10, Children = { quit, Text("v0.2.0", 11, false, "8A969B") } };
+        navigation.PaneFooter = new StackPanel { Margin = new(20, 0, 0, 20), Spacing = 10, Children = { quit, Text($"v{AppVersion}", 11, false, "8A969B") } };
         AddNavigation("连接总览", "overview", "\uE701");
         AddNavigation("手柄测试", "test", "\uE7FC");
         AddNavigation("按键映射", "mapping", "\uE8AB");
@@ -119,7 +120,7 @@ public sealed class MainWindow : Window
             if (initialized) return;
             initialized = true;
             navigation.SelectedItem = navigation.MenuItems[0];
-            AppLog.Write("info", "NS2 Pro v0.2.0 已启动 · WinUI 3");
+            AppLog.Write("info", $"NS2 Pro v{AppVersion} 已启动 · WinUI 3");
             if (settings.AutoStartConnection) _ = controller.StartAsync();
         };
     }
@@ -140,6 +141,9 @@ public sealed class MainWindow : Window
         public readonly TextBlock addressText = Text("蓝牙 LE · 保留 NS2 配对", 12, false, "78858B");
         public readonly TextBlock hzText = Text("—", 26, true);
         public readonly TextBlock batteryText = Text("—", 26, true);
+        public readonly BatteryIcon batteryIcon = new();
+        public readonly TextBlock outputStatus = Text("连接后启用游戏输出 · Xbox 360 / XInput", 11, false, "8A969B");
+        public readonly Border outputDot = new() { Width = 5, Height = 5, CornerRadius = new(3), Background = Brush("A4B0B3"), VerticalAlignment = VerticalAlignment.Center };
         public readonly TextBlock inputText = Text("等待手柄连接", 12, false, "78858B");
         public ControllerFaceView? Model;
         public ControllerFaceView controllerView => Model ??= new();
@@ -223,12 +227,16 @@ public sealed class MainWindow : Window
         actions.Children.Add(Text("用 SYNC 进入 PC 模式；结束后按 HOME 回主机。", 12, false, "78858B"));
         actions.Children.Add(Text("避免误唤醒：离线时不要用 HOME 连接 PC。", 12, false, "78858B"));
         page.Children.Add(Columns(Card(hero, 24), Card(actions, 23), 1.8, 1));
-        page.Children.Add(Columns(Metric("输入频率", hzText, "份报告 / 秒"), Metric("手柄电量", batteryText, "来自手柄蓝牙报告"), 1, 1,
-            Metric("游戏输出", Text("Xbox 360", 24, true), "XInput · Windows 游戏兼容")));
+        var battery = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 13 };
+        live.batteryIcon.VerticalAlignment = VerticalAlignment.Center;
+        battery.Children.Add(live.batteryIcon); battery.Children.Add(batteryText);
+        page.Children.Add(Columns(Metric("输入频率", hzText), Metric("手柄电量", battery), 1, 1));
         var preset = new StackPanel { Spacing = 12, Children = { Text("当前映射", 14, true), MappingPreview() } };
         var edit = new Button { Content = "更改预设", HorizontalAlignment = HorizontalAlignment.Right };
         edit.Click += (_, _) => SelectPage("mapping"); preset.Children.Add(edit);
         page.Children.Add(Card(preset, 20));
+        page.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new(3, 0, 0, 2),
+            Children = { live.outputDot, live.outputStatus } });
     }
 
     private void BuildTestPage()
@@ -310,7 +318,7 @@ public sealed class MainWindow : Window
         var copy = new Button { Content = "复制诊断信息" };
         copy.Click += (_, _) => {
             var package = new DataPackage();
-            package.SetText($"NS2 Pro v0.2.0\nWindows: {Environment.OSVersion}\n状态: {controller.Info}\n预设: {settings.Layout}\n死区: {settings.Deadzone:P0}\n\n" + string.Join(Environment.NewLine, logLines));
+            package.SetText($"NS2 Pro v{AppVersion}\nWindows: {Environment.OSVersion}\n状态: {controller.Info}\n预设: {settings.Layout}\n死区: {settings.Deadzone:P0}\n\n" + string.Join(Environment.NewLine, logLines));
             Clipboard.SetContent(package); result.Text = "诊断信息已复制";
         };
         diagnostics.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Children = { check, logs, copy } });
@@ -318,7 +326,7 @@ public sealed class MainWindow : Window
         page.Children.Add(Card(diagnostics, 24));
         var exit = new Button { Content = "断开连接并退出应用", HorizontalAlignment = HorizontalAlignment.Left };
         exit.Click += async (_, _) => await ExitAsync(); page.Children.Add(exit);
-        page.Children.Add(Text("NS2 Pro 0.2.0 · WinUI 3 / .NET 10\n使用 Windows 蓝牙 API 与 ViGEmBus。当前支持按键、摇杆与电量；震动、陀螺仪和耳机音频暂未接入。", 12, false, "78858B"));
+        page.Children.Add(Text($"NS2 Pro {AppVersion} · WinUI 3 / .NET 10\n使用 Windows 蓝牙 API 与 ViGEmBus。当前支持按键、摇杆与电量；震动、陀螺仪和耳机音频暂未接入。", 12, false, "78858B"));
     }
 
     private async Task ToggleConnectionAsync()
@@ -341,6 +349,15 @@ public sealed class MainWindow : Window
         connectButton.IsEnabled = info.Phase != ConnectionPhase.Stopping;
         returnButton.IsEnabled = info.Phase is ConnectionPhase.Connected or ConnectionPhase.Connecting or ConnectionPhase.Searching;
         hzText.Text = info.Phase == ConnectionPhase.Connected ? $"{info.Hertz:F0} Hz" : "—";
+        var outputState = info.Phase switch {
+            ConnectionPhase.Connected => "游戏输出已就绪",
+            ConnectionPhase.Preparing or ConnectionPhase.Searching or ConnectionPhase.Connecting => "游戏输出等待连接",
+            ConnectionPhase.Stopping => "正在释放游戏输出",
+            ConnectionPhase.Error => "游戏输出未就绪",
+            _ => "连接后启用游戏输出"
+        };
+        live.outputStatus.Text = outputState + " · Xbox 360 / XInput";
+        live.outputDot.Background = Brush(info.Phase == ConnectionPhase.Connected ? "228F85" : "A4B0B3");
     }
     private void UpdateLiveInput()
     {
@@ -348,6 +365,7 @@ public sealed class MainWindow : Window
         var state = controller.Input;
         if (selectedPage is "overview" or "test") controllerView.Update(state);
         batteryText.Text = state is null ? "—" : $"{state.BatteryPercent}%";
+        live.batteryIcon.Update(state?.BatteryPercent);
         inputText.Text = state is null ? "尚未接收输入 · 连接后自动开始检测" : $"● 正在接收 · {controller.Info.Hertz:F1} Hz · {controller.Info.Reports:N0} 份报告";
         var left = state?.UnfilteredLeft ?? new(0, 0); var right = state?.UnfilteredRight ?? new(0, 0);
         var leftFiltered = state?.Left ?? new(0, 0); var rightFiltered = state?.Right ?? new(0, 0);
@@ -472,7 +490,7 @@ public sealed class MainWindow : Window
         }
         return row;
     }
-    private static Border Metric(string label, TextBlock value, string detail) => Card(new StackPanel { Spacing = 7, Children = { Text(label, 12, false, "78858B"), value, Text(detail, 11, false, "8A969B") } }, 20);
+    private static Border Metric(string label, FrameworkElement value) => Card(new StackPanel { Spacing = 10, Children = { Text(label, 12, false, "78858B"), value } }, 20);
     private static Border StickCard(string label, StickPlot plot, TextBlock values, TextBlock output, TextBlock offset) => Card(new StackPanel { Spacing = 8, Children = { Text(label, 15, true), plot, values, output, offset } }, 20);
     private static Border TriggerCard(string label, ProgressBar bar) => Card(new StackPanel { Spacing = 12, Children = { Text(label, 13, true), bar } }, 20);
     private static Grid Columns(FrameworkElement first, FrameworkElement second, double a, double b, FrameworkElement? third = null)

@@ -1,4 +1,4 @@
-param([switch]$Publish)
+param([switch]$Publish, [string]$OutputDirectory = 'artifacts\NS2Pro')
 $ErrorActionPreference = 'Stop'
 $ns2Root = Split-Path -Parent $PSScriptRoot
 $ns2Dotnet = Join-Path $ns2Root '.tools\dotnet\dotnet.exe'
@@ -12,14 +12,14 @@ try {
     & $ns2Dotnet run --project tests\NS2Pro.Core.Tests -c Release -r win-x64 --no-restore
     if ($LASTEXITCODE -ne 0) { throw 'Protocol checks failed' }
     if ($Publish) {
-        & $ns2Dotnet publish src\NS2Pro.App -c Release -r win-x64 --self-contained true --no-restore -o artifacts\NS2Pro
+        & $ns2Dotnet publish src\NS2Pro.App -c Release -r win-x64 --self-contained true --no-restore -o $OutputDirectory
     } else {
         & $ns2Dotnet build src\NS2Pro.App -c Debug -r win-x64 --no-restore
     }
     if ($LASTEXITCODE -ne 0) { throw 'Native app build failed' }
     if ($Publish) {
         foreach ($ns2Required in @('NS2Pro.exe', 'NS2Pro.dll', 'NS2Pro.pri', 'ViGEmClient.dll', 'Assets\App.ico', 'Licenses\ViGEmClient.txt')) {
-            $ns2RequiredPath = Join-Path 'artifacts\NS2Pro' $ns2Required
+            $ns2RequiredPath = Join-Path $OutputDirectory $ns2Required
             if (-not (Test-Path -LiteralPath $ns2RequiredPath)) { throw "Published file missing: $ns2Required" }
         }
     }

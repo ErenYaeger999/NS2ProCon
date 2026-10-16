@@ -41,6 +41,8 @@
 ./scripts/install-shortcut.ps1 # 桌面快捷方式，直接启动原生应用
 ```
 
+应用运行时可发布到独立目录，避免占用文件和中断游戏：`./scripts/build.ps1 -Publish -OutputDirectory artifacts/NS2Pro-v0.2.1`，再用 `./scripts/install-shortcut.ps1 -AppDirectory artifacts/NS2Pro-v0.2.1` 更新桌面入口。退出原应用后重开即可使用新版。
+
 `tests/NS2Pro.Core.Tests` 为无额外测试框架依赖的协议检查程序，覆盖记录的真实报告、两套映射、校准读命令、广播过滤和 XInput ABI。
 
 `tools/fetch_sdk.py` 可从微软官方源分段下载锁定的 SDK，并按官方 SHA-512 校验；工具不修改系统 PATH。
@@ -51,6 +53,7 @@
 
 - `v0.1.0-prototype`：已验证的 Python 无线桥接基线。
 - `v0.2.0`：原生 WinUI 界面与 C# 蓝牙桥接，映射预设和手柄测试。
+- `v0.2.1`：电量图标、精简总览指标，以及页底游戏输出状态。
 
 旧版脚本 `Start-PC.cmd` 保留为诊断后备，不要与原生应用同时连接同一只手柄。
 
