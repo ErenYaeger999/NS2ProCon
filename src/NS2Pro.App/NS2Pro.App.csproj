@@ -18,11 +18,14 @@
   </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="..\..\installer\prerequisites.json" LogicalName="NS2Pro.App.Prerequisites.json" />
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
+    <!-- Component-only self-contained deployment avoids unused AI/ML/Search/Widgets payloads. -->
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.3.9" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="2.1.9" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
     <ProjectReference Include="..\NS2Pro.Core\NS2Pro.Core.csproj" />
     <Content Include="..\..\third_party\vigem\ViGEmClient.dll" Link="ViGEmClient.dll" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="..\..\third_party\vigem\LICENSE.txt" Link="Licenses\ViGEmClient.txt" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\third_party\vigem\LICENSE.txt" Link="Licenses\vgamepad.txt" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\third_party\vigem\ViGEmClient-LICENSE.txt" Link="Licenses\ViGEmClient.txt" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\App.ico" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\App.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\App.svg" CopyToOutputDirectory="PreserveNewest" />

@@ -18,9 +18,15 @@ try {
     }
     if ($LASTEXITCODE -ne 0) { throw 'Native app build failed' }
     if ($Publish) {
-        foreach ($ns2Required in @('NS2Pro.exe', 'NS2Pro.dll', 'NS2Pro.pri', 'ViGEmClient.dll', 'Assets\App.ico', 'Assets\App.png', 'Assets\App.svg', 'Licenses\ViGEmClient.txt')) {
+        foreach ($ns2Required in @('NS2Pro.exe', 'NS2Pro.dll', 'NS2Pro.pri', 'ViGEmClient.dll', 'Assets\App.ico', 'Assets\App.png', 'Assets\App.svg', 'Licenses\ViGEmClient.txt', 'Licenses\vgamepad.txt')) {
             $ns2RequiredPath = Join-Path $OutputDirectory $ns2Required
             if (-not (Test-Path -LiteralPath $ns2RequiredPath)) { throw "Published file missing: $ns2Required" }
+        }
+        # Publishing into an old directory does not remove dependencies from the old package graph.
+        foreach ($ns2Unused in @('onnxruntime.dll', 'DirectML.dll', 'Microsoft.Windows.AI.MachineLearning.dll', 'Microsoft.Windows.Search.dll', 'Microsoft.Windows.Widgets.dll', 'DWriteCore.dll')) {
+            if (Test-Path -LiteralPath (Join-Path $OutputDirectory $ns2Unused)) {
+                throw "Unused SDK component remains in publish output: $ns2Unused. Publish into a fresh directory."
+            }
         }
     }
 } finally { Pop-Location }

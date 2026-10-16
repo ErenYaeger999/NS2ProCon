@@ -1,4 +1,4 @@
-param([string]$OutputDirectory = '')
+param([string]$OutputDirectory = '', [switch]$SkipPackaging)
 $ErrorActionPreference = 'Stop'
 $ns2Root = Split-Path -Parent $PSScriptRoot
 $ns2Version = ([xml](Get-Content -LiteralPath (Join-Path $ns2Root 'Directory.Build.props') -Raw)).Project.PropertyGroup.Version | Where-Object { $_ }
@@ -83,33 +83,40 @@ Get-ChildItem -LiteralPath $ns2Publish -File | Where-Object { $_.Extension -eq '
     throw "Release contains development symbols: $($_.Name). Publish into a fresh directory."
 }
 
-$ns2Tool = Get-Content -LiteralPath (Join-Path $ns2Root 'installer\toolchain.json') -Raw | ConvertFrom-Json
-$ns2ToolPackage = Join-Path $ns2Downloads "tools.innosetup.$($ns2Tool.version).nupkg"
-Get-VerifiedDownload $ns2Tool.url $ns2ToolPackage $ns2Tool.sha256
-$ns2CompilerFolder = Join-Path $ns2Root ".tools\innosetup-$($ns2Tool.version)"
-if (-not (Test-Path -LiteralPath $ns2CompilerFolder)) {
-    & $ns2Dotnet nuget verify $ns2ToolPackage --all
-    if ($LASTEXITCODE -ne 0) { throw 'Compiler package signature did not validate' }
-    Expand-Archive -LiteralPath $ns2ToolPackage -DestinationPath $ns2CompilerFolder
+if (-not $SkipPackaging) {
+    $ns2Tool = Get-Content -LiteralPath (Join-Path $ns2Root 'installer\toolchain.json') -Raw | ConvertFrom-Json
+    $ns2ToolPackage = Join-Path $ns2Downloads "tools.innosetup.$($ns2Tool.version).nupkg"
+    Get-VerifiedDownload $ns2Tool.url $ns2ToolPackage $ns2Tool.sha256
+    $ns2CompilerFolder = Join-Path $ns2Root ".tools\innosetup-$($ns2Tool.version)"
+    if (-not (Test-Path -LiteralPath $ns2CompilerFolder)) {
+        & $ns2Dotnet nuget verify $ns2ToolPackage --all
+        if ($LASTEXITCODE -ne 0) { throw 'Compiler package signature did not validate' }
+        Expand-Archive -LiteralPath $ns2ToolPackage -DestinationPath $ns2CompilerFolder
+    }
+    $ns2Compiler = Join-Path $ns2CompilerFolder 'tools\ISCC.exe'
+    Assert-Signer $ns2Compiler $ns2Tool.signer
+    Copy-Item -LiteralPath (Join-Path $ns2CompilerFolder 'tools\License.txt') -Destination (Join-Path $ns2LicenseFolder 'InnoSetup.txt') -Force
 }
-$ns2Compiler = Join-Path $ns2CompilerFolder 'tools\ISCC.exe'
-Assert-Signer $ns2Compiler $ns2Tool.signer
-Copy-Item -LiteralPath (Join-Path $ns2CompilerFolder 'tools\License.txt') -Destination (Join-Path $ns2LicenseFolder 'InnoSetup.txt') -Force
 
 $ns2Inventory = Get-ChildItem -LiteralPath $ns2Publish -Recurse -File | Where-Object { $_.Name -ne 'release-manifest.json' } | ForEach-Object {
     [pscustomobject]@{ Path = [IO.Path]::GetRelativePath($ns2Publish, $_.FullName).Replace('\', '/'); Size = $_.Length; Sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
 }
 [pscustomobject]@{ Version = $ns2Version; Architecture = 'x64'; MinimumWindowsBuild = 19041; Files = @($ns2Inventory) } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $ns2Publish 'release-manifest.json') -Encoding utf8
-& (Join-Path $PSScriptRoot 'check-release.ps1') -PublishDirectory $ns2Publish
-& $ns2Compiler '/Q' "/DPublishDir=$ns2Publish" "/DAppVersion=$ns2Version" "/DAppDisplayName=$ns2Name" (Join-Path $ns2Root 'installer\NS2Pro.iss')
-if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
 $ns2ReleaseFolder = Join-Path $ns2Root 'artifacts\release'
+$ns2ReportFolder = if ($SkipPackaging) { Join-Path (Join-Path $ns2Root 'artifacts\checks') (Split-Path -Leaf $ns2Publish) } else { $ns2ReleaseFolder }
+& (Join-Path $PSScriptRoot 'check-release.ps1') -PublishDirectory $ns2Publish -ReportDirectory $ns2ReportFolder
 $ns2Python = Join-Path $ns2Root '.venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $ns2Python)) { $ns2Python = (Get-Command python -ErrorAction Stop).Source }
 $ns2NativeAudit = & $ns2Python (Join-Path $ns2Root 'tools\audit_pe_imports.py') $ns2Publish
 if ($LASTEXITCODE -ne 0) { throw 'Native dependency audit failed' }
-$ns2NativeAudit | Set-Content -LiteralPath (Join-Path $ns2ReleaseFolder "NS2Pro-$ns2Version-native-imports.json") -Encoding utf8
+$ns2NativeAudit | Set-Content -LiteralPath (Join-Path $ns2ReportFolder "NS2Pro-$ns2Version-native-imports.json") -Encoding utf8
 if (($ns2NativeAudit | ConvertFrom-Json).PSObject.Properties | Where-Object { $_.Value | Where-Object { -not $_.bundled } }) { throw 'Unbundled MSVC runtime dependency found; update prerequisite handling before release' }
+if ($SkipPackaging) {
+    Write-Output "Payload prepared and checked: $ns2Publish (no installer or ZIP generated)."
+    return
+}
+& $ns2Compiler '/Q' "/DPublishDir=$ns2Publish" "/DAppVersion=$ns2Version" "/DAppDisplayName=$ns2Name" (Join-Path $ns2Root 'installer\NS2Pro.iss')
+if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
 $ns2Zip = Join-Path $ns2ReleaseFolder "NS2Pro-$ns2Version-win-x64-portable.zip"
 Compress-Archive -Path (Join-Path $ns2Publish '*') -DestinationPath $ns2Zip -CompressionLevel Optimal -Force
 $ns2Setup = Join-Path $ns2ReleaseFolder "NS2Pro-$ns2Version-win-x64-setup.exe"
