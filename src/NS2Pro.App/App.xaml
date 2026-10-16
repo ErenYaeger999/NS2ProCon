@@ -1,0 +1,12 @@
+<Application x:Class="NS2Pro.App.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries><XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" /></ResourceDictionary.MergedDictionaries>
+            <Color x:Key="SystemAccentColor">#187B78</Color>
+            <SolidColorBrush x:Key="SystemAccentColorDark1">#126963</SolidColorBrush>
+            <SolidColorBrush x:Key="SystemAccentColorLight1">#298C86</SolidColorBrush>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

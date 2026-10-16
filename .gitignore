@@ -11,3 +11,5 @@ artifacts/
 *.zip
 *.log
 *.tmp
+__pycache__/
+*.pyc
