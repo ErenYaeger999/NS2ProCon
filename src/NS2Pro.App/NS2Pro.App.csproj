@@ -23,6 +23,8 @@
     <Content Include="..\..\third_party\vigem\ViGEmClient.dll" Link="ViGEmClient.dll" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\third_party\vigem\LICENSE.txt" Link="Licenses\ViGEmClient.txt" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\App.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\App.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\App.svg" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="PublishAppResources" AfterTargets="Publish">
     <!-- Unpackaged WinUI still needs its project resource index beside the executable. -->

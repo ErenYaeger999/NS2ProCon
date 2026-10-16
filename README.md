@@ -4,7 +4,7 @@
 
 ## 使用
 
-优先使用安装包 `artifacts/release/NS2Pro-0.3.1-win-x64-setup.exe`。安装过程离线补齐缺失的官方 ViGEmBus 驱动，创建开始菜单和桌面入口。日常使用无需管理员权限。
+优先使用安装包 `artifacts/release/NS2Pro-0.4.0-win-x64-setup.exe`。安装过程离线补齐缺失的官方 ViGEmBus 驱动，创建开始菜单和桌面入口。日常使用无需管理员权限。
 
 首次启动进入「连接指南」：检查 Windows、蓝牙与驱动，拔掉 USB，点击开始连接，再长按手柄顶部 SYNC，直到指示灯循环闪烁；收到真实输入后记住首次连接已完成。之后默认进入连接总览，仍可随时回到指南。无需在 Windows 蓝牙设置中手动配对。
 
@@ -55,7 +55,7 @@
 
 发布脚本固定驱动和编译器版本、SHA-256，并检查厂商数字签名；编译器通过已签名的 NuGet 工具包解压使用，不安装到系统。安装程序由 Inno Setup 6.7.3 构建，中文翻译来自其官方仓库的 `Files/Languages/ChineseSimplified.isl`，保留译者署名。驱动来源和摘要位于 `installer/prerequisites.json`，工具链位于 `installer/toolchain.json`。
 
-`scripts/check-release.ps1 -PublishDirectory artifacts/NS2Pro-v0.3.1-release` 检查运行库、PRI 资源、厂商安装器签名、版本和全文件哈希；结果位于 `artifacts/release/NS2Pro-0.3.1-check-report.json`。`tools/audit_pe_imports.py` 使用 Python 标准库静态读取普通及延迟导入表，不加载或执行被检查的 DLL。构建安装包的开发电脑需要 Python 3 运行此审计；用户电脑无需 Python。
+`scripts/check-release.ps1 -PublishDirectory artifacts/NS2Pro-v0.4.0-release` 检查运行库、PRI 和图标资源、厂商安装器签名、版本和全文件哈希；结果位于 `artifacts/release/NS2Pro-0.4.0-check-report.json`。`tools/audit_pe_imports.py` 使用 Python 标准库静态读取普通及延迟导入表，不加载或执行被检查的 DLL。构建安装包的开发电脑需要 Python 3 运行此审计；用户电脑无需 Python。
 
 发布前仍需在干净 Windows 10 / Windows 11 x64 电脑验证首次安装、无驱动安装、重启、首次蓝牙连接和卸载。目前本机已有 ViGEmBus，不能以本机通过代替这部分验证；不声明已在其他蓝牙芯片、Windows 10、ARM64 或精简系统实测通过。程序和安装包尚未配置发行者代码签名，首次下载运行可能被 Windows SmartScreen 提示；正式广泛分发前应配置签名。
 
@@ -73,6 +73,7 @@
 - `v0.2.2`：修正页面滚动条位置，避免覆盖内容卡片。
 - `v0.3.0`：联系入口、首次连接指南、系统兼容处理、离线驱动安装包和发布检查。
 - `v0.3.1`：手柄模型加减号改用清晰的填充式矢量符号。
+- `v0.4.0`：红白主题与统一手柄图标，小尺寸图标单独优化。
 
 旧版脚本 `Start-PC.cmd` 保留为诊断后备，不要与原生应用同时连接同一只手柄。
 
@@ -83,7 +84,7 @@
 - ViGEmClient 随 [vgamepad 0.1.0](https://pypi.org/project/vgamepad/0.1.0/) 发布；保留许可于 `third_party/vigem/LICENSE.txt`，发布目录也包含该许可。
 - ViGEmBus 使用 [官方 1.22.0 发布](https://github.com/nefarius/ViGEmBus/releases/tag/v1.22.0)的完整签名安装器，保留 BSD-3-Clause 许可。上游已归档；该版本移除了自动更新器，安装包不会添加自定义驱动或关闭系统安全机制。
 - 本次原生界面、协议解析与连接服务在项目中实现。REA 未参与实时蓝牙连接。
-- 应用图标是本项目生成的简洁手柄图形，源脚本为 `tools/generate_icon.py`。
+- 主题红色 #E60012 取自[任天堂官网样式](https://www.nintendo.com/jp/common/v3/css/shared.css)。应用图标为本项目原创的红白手柄与四格按键图形，源文件为 `src/NS2Pro.App/Assets/App.svg`；`tools/generate_icon.py` 使用 Pillow 导出 PNG 与多尺寸 ICO，小尺寸按像素单独调整。
 - 手柄示意图上的 Switch 2 标志为原生矢量重绘，参考任天堂官方图案及 [Wikimedia 矢量标志页面](https://commons.wikimedia.org/wiki/File:Nintendo_Switch_2_logo_transparent_black.svg)，仅用于呈现所连接手柄的外观。
 
 ## 三维资源调研

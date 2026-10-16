@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>NS2 Pro</title>
+  <desc>Original red and white Pro Controller mark with two subtle function keys and four square buttons suggesting Windows.</desc>
+  <rect x="32" y="32" width="960" height="960" rx="224" fill="#E60012"/>
+  <path fill="#FFFFFF" d="M 326 320 C 262 305 215 348 192 412 L 141 642 C 126 711 149 756 190 758 C 226 760 249 726 275 688 L 318 626 H 706 L 749 688 C 775 726 798 760 834 758 C 875 756 898 711 883 642 L 832 412 C 809 348 762 305 698 320 Z"/>
+  <path id="dpad" fill="#E60012" d="M 304 440 H 340 V 482 H 382 V 518 H 340 V 560 H 304 V 518 H 262 V 482 H 304 Z"/>
+  <g id="menu" fill="#E60012">
+    <rect x="455" y="493" width="34" height="14" rx="7"/>
+    <rect x="535" y="493" width="34" height="14" rx="7"/>
+  </g>
+  <g id="windows" fill="#E60012">
+    <rect x="652" y="440" width="52" height="52"/>
+    <rect x="720" y="440" width="52" height="52"/>
+    <rect x="652" y="508" width="52" height="52"/>
+    <rect x="720" y="508" width="52" height="52"/>
+  </g>
+</svg>

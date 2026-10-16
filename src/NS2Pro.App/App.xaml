@@ -4,7 +4,23 @@
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries><XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" /></ResourceDictionary.MergedDictionaries>
-            <Color x:Key="SystemAccentColor">#187B78</Color>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <Color x:Key="SystemAccentColor">#E60012</Color>
+                    <Color x:Key="SystemAccentColorDark1">#D00010</Color>
+                    <Color x:Key="SystemAccentColorDark2">#C60010</Color>
+                    <Color x:Key="SystemAccentColorDark3">#AB000D</Color>
+                    <Color x:Key="SystemAccentColorLight1">#EB3341</Color>
+                    <Color x:Key="SystemAccentColorLight2">#F16671</Color>
+                    <Color x:Key="SystemAccentColorLight3">#F799A0</Color>
+                    <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#E60012" />
+                    <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#CD0010" />
+                    <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#B5000E" />
+                    <SolidColorBrush x:Key="AccentTextFillColorPrimaryBrush" Color="#C60010" />
+                    <SolidColorBrush x:Key="AccentTextFillColorSecondaryBrush" Color="#AB000D" />
+                    <SolidColorBrush x:Key="AccentTextFillColorTertiaryBrush" Color="#D00010" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

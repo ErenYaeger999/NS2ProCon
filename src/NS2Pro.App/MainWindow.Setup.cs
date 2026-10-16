@@ -23,7 +23,7 @@ public sealed partial class MainWindow
         } } };
         flyout.Opening += (_, _) => copy.Content = "复制邮箱";
         var entry = new Button { Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 7, Children = {
-            new FontIcon { Glyph = "\uE715", FontSize = 13 }, Text("联系作者", 12, false, "60767C")
+            new FontIcon { Glyph = "\uE715", FontSize = 13 }, Text("联系作者", 12, false, "666666")
         } }, Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent), BorderThickness = new(0), Padding = new(8, 6, 8, 6), Flyout = flyout };
         AutomationProperties.SetName(entry, "联系作者，945558278@qq.com");
         return entry;

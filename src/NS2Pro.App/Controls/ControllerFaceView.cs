@@ -17,7 +17,7 @@ public sealed class ControllerFaceView : UserControl, IDisposable
     private readonly Dictionary<string, Key> keys = new();
     private readonly TranslateTransform leftMovement = new(), rightMovement = new();
     private readonly Ellipse leftRim, rightRim;
-    private readonly Brush accent = Solid("228F85"), ink = Solid("BFC8CB");
+    private readonly Brush accent = Solid(AppPalette.Accent), ink = Solid("BFC8CB");
     private readonly Brush keyFill = Gradient("41484C", "252C30");
     private readonly Brush shoulderFill = Gradient("D3D9DA", "9CA7AC");
     private ControllerInput? previous;
@@ -108,9 +108,9 @@ public sealed class ControllerFaceView : UserControl, IDisposable
     }
     private void Indicator(Canvas canvas,string name,double x,double y)
     {
-        var rect=new Rectangle { Width=70,Height=24,RadiusX=10,RadiusY=10,Fill=Solid("E7ECEC"),Stroke=Solid("D5DEDF"),StrokeThickness=1 };
+        var rect=new Rectangle { Width=70,Height=24,RadiusX=10,RadiusY=10,Fill=Solid("EEEEEE"),Stroke=Solid("DADADA"),StrokeThickness=1 };
         Canvas.SetLeft(rect,x-35);Canvas.SetTop(rect,y-12);canvas.Children.Add(rect);
-        Label(canvas,name,x,y,13,"586B73",true);keys[name]=new(rect,rect.Fill,new());
+        Label(canvas,name,x,y,13,"666666",true);keys[name]=new(rect,rect.Fill,new());
     }
     private static Ellipse Circle(Canvas canvas,double x,double y,double r,Brush fill,Brush? stroke,double thickness)
     {

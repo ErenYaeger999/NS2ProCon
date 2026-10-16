@@ -18,18 +18,18 @@ public sealed class StickPlot : UserControl
     public StickPlot()
     {
         var canvas = new Canvas { Width = 220, Height = 220 };
-        var outer = new Ellipse { Width = 184, Height = 184, Stroke = new SolidColorBrush(Colors.LightGray), StrokeThickness = 1, Fill = new SolidColorBrush(ColorHelper.FromArgb(255, 250, 251, 251)) };
+        var outer = new Ellipse { Width = 184, Height = 184, Stroke = new SolidColorBrush(Colors.LightGray), StrokeThickness = 1, Fill = new SolidColorBrush(ColorHelper.FromArgb(255, 250, 250, 250)) };
         Canvas.SetLeft(outer, 18); Canvas.SetTop(outer, 18); canvas.Children.Add(outer);
         foreach (var line in new[] {
             new Line { X1=18, X2=202, Y1=110, Y2=110 }, new Line { X1=110, X2=110, Y1=18, Y2=202 } }) {
-            line.Stroke = new SolidColorBrush(ColorHelper.FromArgb(255, 225, 231, 232)); canvas.Children.Add(line);
+            line.Stroke = new SolidColorBrush(ColorHelper.FromArgb(255, 229, 229, 229)); canvas.Children.Add(line);
         }
-        deadzoneCircle = new Ellipse { Fill = new SolidColorBrush(ColorHelper.FromArgb(50, 24, 123, 120)) };
+        deadzoneCircle = new Ellipse { Fill = AppPalette.AccentBrush(30) };
         canvas.Children.Add(deadzoneCircle);
-        trail = new Polyline { Stroke = new SolidColorBrush(ColorHelper.FromArgb(95, 24, 123, 120)), StrokeThickness = 2 };
+        trail = new Polyline { Stroke = AppPalette.AccentBrush(105), StrokeThickness = 2 };
         canvas.Children.Add(trail);
-        rawDot = new Ellipse { Width = 11, Height = 11, Fill = new SolidColorBrush(ColorHelper.FromArgb(255, 24, 123, 120)) };
-        outputDot = new Ellipse { Width = 16, Height = 16, Stroke = new SolidColorBrush(ColorHelper.FromArgb(255, 38, 54, 63)), StrokeThickness = 2 };
+        rawDot = new Ellipse { Width = 11, Height = 11, Fill = AppPalette.AccentBrush() };
+        outputDot = new Ellipse { Width = 16, Height = 16, Stroke = new SolidColorBrush(ColorHelper.FromArgb(255, 41, 41, 41)), StrokeThickness = 2 };
         canvas.Children.Add(outputDot); canvas.Children.Add(rawDot);
         Content = new Viewbox { Child = canvas, Stretch = Stretch.Uniform, MaxHeight = 220 };
         Update(new(0, 0), new(0, 0), .06);

@@ -44,12 +44,12 @@ public sealed class ConnectionGuideView : UserControl
             Heading("2", "用 SYNC 连接 PC"),
             Label("先拔掉 USB 线，把手柄放在电脑附近。", 14),
             Label("点击下方「开始连接」，再长按手柄顶部的 SYNC 小圆键，直到指示灯循环闪烁。", 14),
-            new Border { Background = Brush("EFF6F4"), CornerRadius = new(10), Padding = new(15), Child = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = {
-                new Border { Width = 36, Height = 36, CornerRadius = new(18), Background = Brush("187B78"), Child = new FontIcon { Glyph = "\uE895", FontSize = 18, Foreground = Brush("FFFFFF") } },
+            new Border { Background = Brush(AppPalette.Soft), CornerRadius = new(10), Padding = new(15), Child = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = {
+                new Border { Width = 36, Height = 36, CornerRadius = new(18), Background = Brush(AppPalette.Accent), Child = new FontIcon { Glyph = "\uE895", FontSize = 18, Foreground = Brush("FFFFFF") } },
                 new StackPanel { Spacing = 2, Children = { Label("长按顶部 SYNC", 14, true), Label("连接 PC 请用 SYNC；HOME 会唤醒 NS2。", 12) } }
             } } }, connectionStatus
         } };
-        start.Background = Brush("187B78"); start.Foreground = Brush("FFFFFF");
+        start.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
         steps.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = { start, stop } });
         steps.Children.Add(scanHelp);
         var tips = new StackPanel { Spacing = 9, Children = {
@@ -104,7 +104,7 @@ public sealed class ConnectionGuideView : UserControl
             checks.Children.Clear();
             foreach (var item in report.Items) {
                 checks.Children.Add(new StackPanel { Spacing = 3, Children = {
-                    Label((item.Ready ? "✓  " : "○  ") + item.Name, 13, true, item.Ready ? "187B78" : "A86C3E"),
+                    Label((item.Ready ? "✓  " : "○  ") + item.Name, 13, true, item.Ready ? AppPalette.AccentText : "A86C3E"),
                     Label(item.Detail, 12)
                 } });
             }
@@ -132,10 +132,10 @@ public sealed class ConnectionGuideView : UserControl
     }
 
     private static StackPanel Heading(string number, string title) => new() { Orientation = Orientation.Horizontal, Spacing = 12, Children = {
-        new Border { Width = 28, Height = 28, CornerRadius = new(14), Background = Brush("E7F1EE"), Child = new TextBlock { Text = number, FontSize = 13, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = Brush("187B78"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } },
-        new TextBlock { Text = title, FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = Brush("263B43"), VerticalAlignment = VerticalAlignment.Center }
+        new Border { Width = 28, Height = 28, CornerRadius = new(14), Background = Brush(AppPalette.SoftStrong), Child = new TextBlock { Text = number, FontSize = 13, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = Brush(AppPalette.AccentText), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } },
+        new TextBlock { Text = title, FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = Brush(AppPalette.Text), VerticalAlignment = VerticalAlignment.Center }
     } };
-    private static Border Card(UIElement child) => new() { Background = Brush("FFFFFF"), BorderBrush = Brush("E3E9E9"), BorderThickness = new(1), CornerRadius = new(16), Padding = new(22), Child = child };
-    private static TextBlock Label(string text, double size, bool bold = false, string color = "78858B") => new() { Text = text, FontSize = size, TextWrapping = TextWrapping.Wrap, Foreground = Brush(color), FontWeight = bold ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal };
+    private static Border Card(UIElement child) => new() { Background = Brush("FFFFFF"), BorderBrush = Brush(AppPalette.Border), BorderThickness = new(1), CornerRadius = new(16), Padding = new(22), Child = child };
+    private static TextBlock Label(string text, double size, bool bold = false, string color = AppPalette.Muted) => new() { Text = text, FontSize = size, TextWrapping = TextWrapping.Wrap, Foreground = Brush(color), FontWeight = bold ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal };
     private static SolidColorBrush Brush(string hex) => new(ColorHelper.FromArgb(255, Convert.ToByte(hex[..2], 16), Convert.ToByte(hex[2..4], 16), Convert.ToByte(hex[4..6], 16)));
 }
