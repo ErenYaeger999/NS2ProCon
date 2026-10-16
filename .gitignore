@@ -1,0 +1,13 @@
+.venv/
+.tools/
+rea/
+research/
+artifacts/
+**/bin/
+**/obj/
+.vs/
+*.user
+*.tgz
+*.zip
+*.log
+*.tmp
