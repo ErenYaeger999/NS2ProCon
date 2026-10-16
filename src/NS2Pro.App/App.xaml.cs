@@ -5,7 +5,7 @@ namespace NS2Pro.App;
 
 public partial class App : Application
 {
-    internal static string WindowTitle => Services.AppSettings.IsPreview ? "NS2 Pro · 引导预览" : "NS2 Pro";
+    internal static string WindowTitle => Services.AppSettings.IsPreview ? AppIdentity.PreviewTitle : AppIdentity.DisplayName;
     private MainWindow? window;
     private readonly SingleInstance instance;
     internal App(SingleInstance instance)

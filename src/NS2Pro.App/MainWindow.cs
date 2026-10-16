@@ -80,7 +80,7 @@ public sealed partial class MainWindow : Window
         root.RowDefinitions.Add(new() { Height = new(44) });
         root.RowDefinitions.Add(new() { Height = new(1, GridUnitType.Star) });
         var titlebar = new Grid { Margin = new(20, 0, 150, 0) };
-        var appName = Text("NS2 Pro", 12, true, "565656");
+        var appName = Text(AppIdentity.DisplayName, 12, true, "565656");
         appName.VerticalAlignment = VerticalAlignment.Center;
         titlebar.Children.Add(appName); root.Children.Add(titlebar); SetTitleBar(titlebar);
         navigation.PaneDisplayMode = NavigationViewPaneDisplayMode.Left;
@@ -147,7 +147,7 @@ public sealed partial class MainWindow : Window
             bool showGuide = AppSettings.IsPreview || settings.ShouldShowConnectionGuide;
             settings.HasSeenConnectionGuide = true; SaveSettings();
             SelectPage(showGuide ? "setup" : "overview");
-            AppLog.Write("info", $"NS2 Pro v{AppVersion} 已启动 · WinUI 3");
+            AppLog.Write("info", $"{AppIdentity.DisplayName} v{AppVersion} 已启动 · WinUI 3");
             if (settings.AutoStartConnection && settings.HasCompletedFirstConnection) _ = controller.StartAsync();
         };
     }
@@ -157,7 +157,7 @@ public sealed partial class MainWindow : Window
     private static StackPanel Brand() => new() { Margin = new(20, 16, 0, 24), Spacing = 6,
         Children = { new Image { Width = 42, Height = 42, HorizontalAlignment = HorizontalAlignment.Left,
             Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "App.png"))) },
-            Text("NS2 Pro", 22, true), Text("一只手柄，自在切换", 11, false, AppPalette.Muted) } };
+            Text(AppIdentity.DisplayName, 18, true), Text("一只手柄，自在切换", 11, false, AppPalette.Muted) } };
 
     // Each page owns its visual tree for its entire lifetime. Never reparent focused buttons,
     // status elements, or a live preview while WinUI is processing navigation/focus events.
@@ -292,7 +292,7 @@ public sealed partial class MainWindow : Window
     {
         title.Text = "按键映射"; subtitle.Text = "选择 ABXY 布局，立即应用到游戏输出。";
         page.Children.Add(Columns(LayoutCard(ButtonLayout.Labels), LayoutCard(ButtonLayout.Positions), 1, 1));
-        var detail = new StackPanel { Spacing = 14, Children = { Text("通用映射", 17, true), Text("NS2 Pro  →  Xbox 游戏输出", 11, false, AppPalette.Muted) } };
+        var detail = new StackPanel { Spacing = 14, Children = { Text("通用映射", 17, true), Text("NS2Pro 手柄  →  Xbox 游戏输出", 11, false, AppPalette.Muted) } };
         detail.Children.Add(Columns(MappingTile("肩键", Keycaps(false, false, "L", "R"), Keycaps(true, false, "LB", "RB")),
             MappingTile("扳机", Keycaps(false, false, "ZL", "ZR"), Keycaps(true, false, "LT", "RT")), 1, 1));
         detail.Children.Add(Columns(MappingTile("菜单", Keycaps(false, false, "+", "−"), Keycaps(true, false, "Start", "Back")),
@@ -346,7 +346,7 @@ public sealed partial class MainWindow : Window
         var copy = new Button { Content = "复制诊断信息" };
         copy.Click += (_, _) => {
             var package = new DataPackage();
-            package.SetText($"NS2 Pro v{AppVersion}\nWindows: {Environment.OSVersion}\n状态: {controller.Info}\n预设: {settings.Layout}\n死区: {settings.Deadzone:P0}\n\n" + string.Join(Environment.NewLine, logLines));
+            package.SetText($"{AppIdentity.DisplayName} v{AppVersion}\nWindows: {Environment.OSVersion}\n状态: {controller.Info}\n预设: {settings.Layout}\n死区: {settings.Deadzone:P0}\n\n" + string.Join(Environment.NewLine, logLines));
             Clipboard.SetContent(package); result.Text = "诊断信息已复制";
         };
         diagnostics.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Children = { check, logs, copy } });
@@ -354,7 +354,7 @@ public sealed partial class MainWindow : Window
         page.Children.Add(Card(diagnostics, 24));
         var exit = new Button { Content = "断开连接并退出应用", HorizontalAlignment = HorizontalAlignment.Left };
         exit.Click += async (_, _) => await ExitAsync(); page.Children.Add(exit);
-        page.Children.Add(Text($"NS2 Pro {AppVersion} · WinUI 3 / .NET 10\n使用 Windows 蓝牙 API 与 ViGEmBus。当前支持按键、摇杆与电量；震动、陀螺仪和耳机音频暂未接入。", 12, false, AppPalette.Muted));
+        page.Children.Add(Text($"{AppIdentity.DisplayName} {AppVersion} · WinUI 3 / .NET 10\n使用 Windows 蓝牙 API 与 ViGEmBus。当前支持按键、摇杆与电量；震动、陀螺仪和耳机音频暂未接入。", 12, false, AppPalette.Muted));
     }
 
     private async Task ToggleConnectionAsync()

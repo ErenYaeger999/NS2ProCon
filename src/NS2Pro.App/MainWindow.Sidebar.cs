@@ -32,10 +32,12 @@ public sealed partial class MainWindow
         var metadata = new Grid { Margin = new(20, 12, 20, 18) };
         metadata.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
         metadata.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-        metadata.Children.Add(Text("NS2 Pro", 11, false, AppPalette.Muted));
+        var name = Text(AppIdentity.DisplayName, 11, false, AppPalette.Muted);
+        name.TextTrimming = TextTrimming.CharacterEllipsis; name.TextWrapping = TextWrapping.NoWrap;
+        ToolTipService.SetToolTip(name, AppIdentity.DisplayName); metadata.Children.Add(name);
         Grid.SetColumn(version, 1); metadata.Children.Add(version);
         var metadataItem = new NavigationViewItemHeader { Content = metadata, Style = (Style)Application.Current.Resources["SidebarMetadataStyle"] };
-        AutomationProperties.SetName(metadataItem, $"NS2 Pro，版本 {AppVersion}");
+        AutomationProperties.SetName(metadataItem, $"{AppIdentity.DisplayName}，版本 {AppVersion}");
         navigation.FooterMenuItems.Add(metadataItem);
 
         navigation.ItemInvoked += async (_, args) => {
@@ -71,7 +73,7 @@ public sealed partial class MainWindow
         var mail = new Button { Content = "写邮件", Height = 36, HorizontalAlignment = HorizontalAlignment.Stretch };
         mail.Click += async (_, _) => {
             try {
-                if (await Launcher.LaunchUriAsync(new Uri($"mailto:{ContactEmail}?subject=NS2%20Pro%20%E5%8F%8D%E9%A6%88"))) return;
+                if (await Launcher.LaunchUriAsync(new Uri($"mailto:{ContactEmail}?subject={Uri.EscapeDataString(AppIdentity.DisplayName + " 反馈")}"))) return;
             } catch (Exception) { }
             status.Text = "未能打开邮件应用，可复制邮箱后联系。"; status.Visibility = Visibility.Visible;
         };

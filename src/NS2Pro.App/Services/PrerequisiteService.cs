@@ -44,9 +44,9 @@ public static class PrerequisiteService
         // Only run the immutable, bundled vendor installer after checking its pinned digest.
         var folder = Path.Combine(AppContext.BaseDirectory, "Prerequisites");
         await using var manifestStream = typeof(PrerequisiteService).Assembly.GetManifestResourceStream("NS2Pro.App.Prerequisites.json")
-            ?? throw new InvalidDataException("驱动清单缺失，请重新安装 NS2 Pro。");
+            ?? throw new InvalidDataException($"驱动清单缺失，请重新安装{AppIdentity.DisplayName}。");
         var manifest = await JsonSerializer.DeserializeAsync<PrerequisiteFile[]>(manifestStream, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
-            ?? throw new InvalidDataException("驱动清单缺失，请重新安装 NS2 Pro。");
+            ?? throw new InvalidDataException($"驱动清单缺失，请重新安装{AppIdentity.DisplayName}。");
         var driver = manifest.Single(x => x.Id == "vigembus");
         if (Path.GetFileName(driver.File) != driver.File) throw new InvalidDataException("驱动文件名无效。");
         var installer = Path.Combine(folder, driver.File);

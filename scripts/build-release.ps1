@@ -2,6 +2,8 @@ param([string]$OutputDirectory = '')
 $ErrorActionPreference = 'Stop'
 $ns2Root = Split-Path -Parent $PSScriptRoot
 $ns2Version = ([xml](Get-Content -LiteralPath (Join-Path $ns2Root 'Directory.Build.props') -Raw)).Project.PropertyGroup.Version | Where-Object { $_ }
+$ns2Name = ([xml](Get-Content -LiteralPath (Join-Path $ns2Root 'Directory.Build.props') -Raw)).Project.PropertyGroup.AppDisplayName | Where-Object { $_ }
+if (-not $ns2Name) { throw 'AppDisplayName is required' }
 if (-not $OutputDirectory) { $OutputDirectory = "artifacts\NS2Pro-v$ns2Version-release" }
 $ns2Publish = if ([IO.Path]::IsPathRooted($OutputDirectory)) { $OutputDirectory } else { Join-Path $ns2Root $OutputDirectory }
 $ns2Publish = [IO.Path]::GetFullPath($ns2Publish)
@@ -99,7 +101,7 @@ $ns2Inventory = Get-ChildItem -LiteralPath $ns2Publish -Recurse -File | Where-Ob
 }
 [pscustomobject]@{ Version = $ns2Version; Architecture = 'x64'; MinimumWindowsBuild = 19041; Files = @($ns2Inventory) } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $ns2Publish 'release-manifest.json') -Encoding utf8
 & (Join-Path $PSScriptRoot 'check-release.ps1') -PublishDirectory $ns2Publish
-& $ns2Compiler '/Q' "/DPublishDir=$ns2Publish" "/DAppVersion=$ns2Version" (Join-Path $ns2Root 'installer\NS2Pro.iss')
+& $ns2Compiler '/Q' "/DPublishDir=$ns2Publish" "/DAppVersion=$ns2Version" "/DAppDisplayName=$ns2Name" (Join-Path $ns2Root 'installer\NS2Pro.iss')
 if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
 $ns2ReleaseFolder = Join-Path $ns2Root 'artifacts\release'
 $ns2Python = Join-Path $ns2Root '.venv\Scripts\python.exe'

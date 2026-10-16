@@ -4,16 +4,19 @@
 #ifndef AppVersion
   #error AppVersion is required
 #endif
+#ifndef AppDisplayName
+  #error AppDisplayName is required
+#endif
 
 [Setup]
 AppId={{C9638C50-B604-4185-A798-2B034C74847D}
-AppName=NS2 Pro
+AppName={#AppDisplayName}
 AppVersion={#AppVersion}
-AppPublisher=NS2 Pro
+AppPublisher={#AppDisplayName}
 AppSupportURL=mailto:945558278@qq.com
 AppContact=945558278@qq.com
-DefaultDirName={autopf}\NS2 Pro
-DefaultGroupName=NS2 Pro
+DefaultDirName={autopf}\{#AppDisplayName}
+DefaultGroupName={#AppDisplayName}
 DisableProgramGroupPage=yes
 ArchitecturesAllowed=x64os
 ArchitecturesInstallIn64BitMode=x64os
@@ -31,7 +34,7 @@ AppMutex=Local\NS2Pro.NativeApp
 CloseApplications=no
 RestartApplications=no
 UsePreviousTasks=yes
-UninstallDisplayName=NS2 Pro
+UninstallDisplayName={#AppDisplayName}
 InfoBeforeFile=install-info.txt
 
 [Languages]
@@ -46,11 +49,15 @@ Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 Source: "{#PublishDir}\Prerequisites\ViGEmBus_1.22.0_x64_x86_arm64.exe"; Flags: dontcopy
 
 [Icons]
-Name: "{autoprograms}\NS2 Pro"; Filename: "{app}\NS2Pro.exe"; WorkingDir: "{app}"
-Name: "{autodesktop}\NS2 Pro 无线连接 PC"; Filename: "{app}\NS2Pro.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autoprograms}\{#AppDisplayName}"; Filename: "{app}\NS2Pro.exe"; WorkingDir: "{app}"
+Name: "{autodesktop}\{#AppDisplayName}"; Filename: "{app}\NS2Pro.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+
+[InstallDelete]
+Type: files; Name: "{autoprograms}\NS2 Pro.lnk"
+Type: files; Name: "{autodesktop}\NS2 Pro 无线连接 PC.lnk"
 
 [Run]
-Filename: "{app}\NS2Pro.exe"; Description: "打开 NS2 Pro，开始连接手柄"; Flags: nowait postinstall skipifsilent runasoriginaluser; Check: CanLaunch
+Filename: "{app}\NS2Pro.exe"; Description: "打开{#AppDisplayName}，开始连接手柄"; Flags: nowait postinstall skipifsilent runasoriginaluser; Check: CanLaunch
 
 [Code]
 var
@@ -65,7 +72,7 @@ function InitializeSetup: Boolean;
 begin
   Result := not CheckForMutexes('Local\NS2Pro.NativeApp');
   if not Result then
-    SuppressibleMsgBox('请先在 NS2 Pro 左下角点击「退出应用」，再运行安装包。关闭窗口可能只会缩到托盘。', mbInformation, MB_OK, IDOK);
+    SuppressibleMsgBox('请先在{#AppDisplayName}左下角点击「退出应用」，再运行安装包。关闭窗口可能只会缩到托盘。', mbInformation, MB_OK, IDOK);
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;

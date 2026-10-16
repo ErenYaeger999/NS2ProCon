@@ -66,7 +66,7 @@ public sealed class ControllerFaceView : UserControl, IDisposable
         AddRearControl(root,"GR",595.5,810,trigger:false,mirror:true);
         Indicator(root,"LS",403.5,904); Indicator(root,"RS",571.5,904);
         Content=new Viewbox { Child=root, Stretch=Stretch.Uniform };
-        AutomationProperties.SetName(this,"NS2 Pro 正面矢量预览，按键高亮，摇杆随输入移动");
+        AutomationProperties.SetName(this,"NS2Pro手柄正面矢量预览，按键高亮，摇杆随输入移动");
     }
     private Ellipse AddStick(Canvas canvas,double x,double y,double radius,TranslateTransform movement)
     {

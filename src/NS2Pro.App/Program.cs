@@ -12,8 +12,11 @@ internal static class Program
         using var instance = new SingleInstance();
         if (!instance.IsPrimary) {
             // Legacy versions do not listen for activation; restore their window directly too.
-            var handle = NativeMethods.FindWindow(null, "NS2 Pro");
-            if (handle == IntPtr.Zero) handle = NativeMethods.FindWindow(null, "NS2 Pro · 引导预览");
+            IntPtr handle = IntPtr.Zero;
+            foreach (var title in new[] { AppIdentity.DisplayName, AppIdentity.PreviewTitle, "NS2 Pro", "NS2 Pro · 引导预览" }) {
+                handle = NativeMethods.FindWindow(null, title);
+                if (handle != IntPtr.Zero) break;
+            }
             if (handle != IntPtr.Zero) {
                 _ = NativeMethods.GetWindowThreadProcessId(handle, out var processId);
                 _ = NativeMethods.AllowSetForegroundWindow(processId);

@@ -1,4 +1,4 @@
-# NS2 Pro
+# NS2Pro手柄PC连接器
 
 原生 WinUI 3 手柄连接助手。通过 Windows 蓝牙 LE，将 Switch 2 Pro Controller 的输入桥接为 Xbox 360 / XInput，同时保留原有 NS2 配对。
 

@@ -89,7 +89,7 @@ internal sealed class TrayIcon : IDisposable
                 if (menu == IntPtr.Zero) return IntPtr.Zero;
                 uint command;
                 try {
-                    AppendMenu(menu, 0, 1, "打开 NS2 Pro");
+                    AppendMenu(menu, 0, 1, "打开 " + AppIdentity.DisplayName);
                     bool active = phase is ConnectionPhase.Preparing or ConnectionPhase.Searching or ConnectionPhase.Connecting or ConnectionPhase.Connected;
                     string label = phase == ConnectionPhase.Connected ? "断开 PC 连接" : active ? "取消连接" : phase == ConnectionPhase.Stopping ? "正在断开…" : "连接手柄（长按 SYNC）";
                     AppendMenu(menu, AppSettings.IsPreview || phase == ConnectionPhase.Stopping ? 1u : 0u, active ? 4u : 3u, label);

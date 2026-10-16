@@ -4,9 +4,16 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <Version>0.5.2</Version>
+    <AppDisplayName>NS2Pro手柄PC连接器</AppDisplayName>
     <Authors>NS2ProCon contributors</Authors>
     <Deterministic>true</Deterministic>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'NS2Pro.App'">
+    <Product>$(AppDisplayName)</Product>
+    <Title>$(AppDisplayName)</Title>
+    <AssemblyTitle>$(AppDisplayName)</AssemblyTitle>
+    <Description>$(AppDisplayName)</Description>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <DebugType>none</DebugType>
