@@ -145,6 +145,8 @@ public sealed class ControllerService(AppSettings settings)
         };
         var clock = Stopwatch.StartNew();
         long count = 0;
+        int seenRight=0, seenLeft=0, seenExtra=0;
+        double leftTravel=0, rightTravel=0;
         long lastTicks = Stopwatch.GetTimestamp();
         bool accepting = true;
         var outputGate = new object();
@@ -157,6 +159,10 @@ public sealed class ControllerService(AppSettings settings)
                     output.Update(decoded.Xbox);
                     input = decoded;
                     Interlocked.Increment(ref count);
+                    seenRight |= decoded.RightButtons; seenLeft |= decoded.LeftButtons; seenExtra |= decoded.ExtraButtons;
+                    leftTravel=Math.Max(leftTravel,Math.Sqrt(decoded.UnfilteredLeft.X*decoded.UnfilteredLeft.X+decoded.UnfilteredLeft.Y*decoded.UnfilteredLeft.Y));
+                    rightTravel=Math.Max(rightTravel,Math.Sqrt(decoded.UnfilteredRight.X*decoded.UnfilteredRight.X+decoded.UnfilteredRight.Y*decoded.UnfilteredRight.Y));
+                    if(count==1)AppLog.Write("info","已收到首份输入报告，实时检测已开始");
                     Interlocked.Exchange(ref lastTicks, Stopwatch.GetTimestamp());
                 } catch (Exception error) {
                     AppLog.Write("error", "输入输出失败：" + error.Message);
@@ -186,6 +192,7 @@ public sealed class ControllerService(AppSettings settings)
             catch (Exception) { }
             if (session is not null) session.MaintainConnection = false;
             AppLog.Write("info", "蓝牙连接已释放");
+            AppLog.Write("info", $"本次输入：{count} 份 · {count/Math.Max(clock.Elapsed.TotalSeconds,.001):F1} Hz · R={seenRight:X2} L={seenLeft:X2} Extra={seenExtra:X2} · 摇杆最大行程 {leftTravel:P0}/{rightTravel:P0}");
         }
     }
 

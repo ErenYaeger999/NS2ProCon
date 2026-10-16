@@ -19,8 +19,8 @@ public partial class App : Application
     {
         instanceMutex = new Mutex(true, "Local\\NS2Pro.NativeApp", out bool first);
         if (!first) {
-            var other = Process.GetProcessesByName("NS2Pro").FirstOrDefault(p => p.Id != Environment.ProcessId);
-            if (other?.MainWindowHandle != IntPtr.Zero) NativeMethods.ShowExisting(other!.MainWindowHandle);
+            var handle = NativeMethods.FindWindow(null, "NS2 Pro");
+            if (handle != IntPtr.Zero) NativeMethods.ShowExisting(handle);
             Exit();
             return;
         }

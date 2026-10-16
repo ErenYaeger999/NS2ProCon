@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DOWNLOAD = ROOT / '.tools' / 'downloads'
 VERSION = '10.0.402'
-URL = f'https://dotnetcli.blob.core.windows.net/dotnet/Sdk/{VERSION}/dotnet-sdk-{VERSION}-win-x64.zip'
+URL = f'https://builds.dotnet.microsoft.com/dotnet/Sdk/{VERSION}/dotnet-sdk-{VERSION}-win-x64.zip'
 SIZE = 300755826
 SHA512 = 'ae4fd528cb7e9f6af6aaf7de36715a69f761f183744f1bb3025d19f5a92447090ec561410e46266c1d10a63781ed6f3de771760bc76c876d87daabc367b898cd'
 CHUNK = 8 * 1024 * 1024

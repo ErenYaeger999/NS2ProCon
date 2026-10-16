@@ -5,8 +5,6 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries><XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" /></ResourceDictionary.MergedDictionaries>
             <Color x:Key="SystemAccentColor">#187B78</Color>
-            <SolidColorBrush x:Key="SystemAccentColorDark1">#126963</SolidColorBrush>
-            <SolidColorBrush x:Key="SystemAccentColorLight1">#298C86</SolidColorBrush>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

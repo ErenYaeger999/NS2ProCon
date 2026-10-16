@@ -18,29 +18,37 @@ public sealed class MainWindow : Window
     private readonly AppSettings settings = AppSettings.Load();
     private readonly ControllerService controller;
     private readonly NavigationView navigation = new();
-    private readonly StackPanel page = new() { Spacing = 22 };
+    private StackPanel page = new() { Spacing = 22 };
+    private readonly ScrollViewer pageScroll = new() { HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
     private readonly TextBlock title = Text("连接总览", 28, true);
     private readonly TextBlock subtitle = Text("连接 PC，随时回到主机。", 13, false, "78858B");
-    private readonly TextBlock badge = Text("未连接", 12, true, "65777D");
-    private readonly TextBlock statusText = Text("准备好连接你的手柄", 14);
-    private readonly TextBlock addressText = Text("蓝牙 LE · 保留 NS2 配对", 12, false, "78858B");
-    private readonly TextBlock hzText = Text("—", 26, true);
-    private readonly TextBlock batteryText = Text("—", 26, true);
-    private readonly TextBlock inputText = Text("等待手柄连接", 12, false, "78858B");
-    private readonly ControllerView controllerView = new();
-    private readonly StickPlot leftPlot = new(), rightPlot = new();
-    private readonly TextBlock leftValues = Text("X  +0.000    Y  +0.000", 12);
-    private readonly TextBlock rightValues = Text("X  +0.000    Y  +0.000", 12);
-    private readonly TextBlock leftOutput = Text("输出  0.000 / 0.000", 11, false, "78858B");
-    private readonly TextBlock rightOutput = Text("输出  0.000 / 0.000", 11, false, "78858B");
-    private readonly TextBlock leftOffset = Text("中心偏移  0.0%", 11, false, "78858B");
-    private readonly TextBlock rightOffset = Text("中心偏移  0.0%", 11, false, "78858B");
-    private readonly ProgressBar leftTrigger = new() { Maximum = 255, Height = 6, Value = 0 };
-    private readonly ProgressBar rightTrigger = new() { Maximum = 255, Height = 6, Value = 0 };
-    private readonly TextBlock xboxButtons = Text("—", 12);
-    private readonly TextBox logBox = new() { IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 190, MaxHeight = 260, FontFamily = new("Cascadia Mono"), FontSize = 11 };
-    private readonly Button connectButton = new() { Content = "连接手柄", HorizontalAlignment = HorizontalAlignment.Stretch, Height = 44 };
-    private readonly Button returnButton = new() { Content = "切回 NS2", HorizontalAlignment = HorizontalAlignment.Stretch, Height = 42 };
+    private readonly Dictionary<string, Border> inputChips = new();
+    private LiveControls live = new();
+    private readonly Grid pageHost = new();
+    private readonly Dictionary<string, CachedPage> cachedPages = new();
+    private StackPanel? pageError;
+    private bool pageFailed;
+    private TextBlock badge => live.badge;
+    private TextBlock statusText => live.statusText;
+    private TextBlock addressText => live.addressText;
+    private TextBlock hzText => live.hzText;
+    private TextBlock batteryText => live.batteryText;
+    private TextBlock inputText => live.inputText;
+    private Controller3DView controllerView => live.controllerView;
+    private StickPlot leftPlot => live.leftPlot;
+    private StickPlot rightPlot => live.rightPlot;
+    private TextBlock leftValues => live.leftValues;
+    private TextBlock rightValues => live.rightValues;
+    private TextBlock leftOutput => live.leftOutput;
+    private TextBlock rightOutput => live.rightOutput;
+    private TextBlock leftOffset => live.leftOffset;
+    private TextBlock rightOffset => live.rightOffset;
+    private ProgressBar leftTrigger => live.leftTrigger;
+    private ProgressBar rightTrigger => live.rightTrigger;
+    private TextBlock xboxButtons => live.xboxButtons;
+    private TextBox logBox => live.logBox;
+    private Button connectButton => live.connectButton;
+    private Button returnButton => live.returnButton;
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(33) };
     private TrayIcon? tray;
     private bool exiting, exitAllowed;
@@ -73,24 +81,26 @@ public sealed class MainWindow : Window
         navigation.IsSettingsVisible = false;
         navigation.IsTitleBarAutoPaddingEnabled = false;
         navigation.PaneHeader = Brand();
-        navigation.PaneFooter = new StackPanel { Margin = new(20, 0, 0, 20), Spacing = 5, Children = {
-            Text("NATIVE · WINUI 3", 10, true, "8A969B"), Text("v0.2.0", 11, false, "8A969B") } };
+        var quit = new Button { Content = "退出应用", FontSize = 11, Padding = new(10, 5, 10, 5) };
+        quit.Click += async (_, _) => await ExitAsync();
+        navigation.PaneFooter = new StackPanel { Margin = new(20, 0, 0, 20), Spacing = 10, Children = { quit, Text("v0.2.0", 11, false, "8A969B") } };
         AddNavigation("连接总览", "overview", "\uE701");
         AddNavigation("手柄测试", "test", "\uE7FC");
         AddNavigation("按键映射", "mapping", "\uE8AB");
         AddNavigation("设置与诊断", "settings", "\uE713");
         navigation.SelectionChanged += (_, args) => {
-            if (args.SelectedItem is NavigationViewItem item) { selectedPage = (string)item.Tag; BuildPage(); }
+            if (args.SelectedItem is NavigationViewItem item) {
+                selectedPage = (string)item.Tag;
+                TryBuildPage();
+            }
         };
-        var scroll = new ScrollViewer { HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = page };
+        var scroll = pageScroll;
+        scroll.Content = pageHost;
         var content = new Grid { Margin = new(26, 13, 28, 24) };
         content.RowDefinitions.Add(new() { Height = GridLength.Auto }); content.RowDefinitions.Add(new() { Height = new(1, GridUnitType.Star) });
         var heading = new StackPanel { Spacing = 5, Margin = new(0, 0, 0, 24), Children = { title, subtitle } };
         content.Children.Add(heading); Grid.SetRow(scroll, 1); content.Children.Add(scroll);
         navigation.Content = content; Grid.SetRow(navigation, 1); root.Children.Add(navigation); Content = root;
-        connectButton.Background = Brush("187B78"); connectButton.Foreground = Brush("FFFFFF");
-        connectButton.Click += async (_, _) => await ToggleConnectionAsync();
-        returnButton.Click += async (_, _) => { await controller.StopAsync(); await ShowInfoAsync("可以回到 NS2 了", "PC 连接与虚拟手柄已断开。现在按手柄 HOME，正常连接 NS2 即可，无需重新配对。"); };
         controller.Changed += info => DispatcherQueue.TryEnqueue(() => UpdateStatus(info));
         AppLog.LineWritten += LogWritten;
         if (File.Exists(AppLog.FilePath)) foreach (var line in File.ReadLines(AppLog.FilePath).TakeLast(30)) logLines.Enqueue(line);
@@ -101,13 +111,18 @@ public sealed class MainWindow : Window
             if (settings.MinimizeToTray && tray is not null) NativeMethods.ShowWindow(hwnd, 0);
             else await ExitAsync();
         };
-        Closed += (_, _) => { timer.Stop(); tray?.Dispose(); AppLog.LineWritten -= LogWritten; };
+        Closed += (_, _) => { timer.Stop(); foreach (var cached in cachedPages.Values) cached.Live.Model?.Dispose(); tray?.Dispose(); AppLog.LineWritten -= LogWritten; };
         try { tray = new(hwnd, () => DispatcherQueue.TryEnqueue(() => { NativeMethods.ShowExisting(hwnd); Activate(); }),
             () => DispatcherQueue.TryEnqueue(async () => await ExitAsync())); }
         catch (Exception error) { AppLog.Write("warn", error.Message); }
-        navigation.SelectedItem = navigation.MenuItems[0];
-        AppLog.Write("info", "NS2 Pro v0.2.0 已启动 · WinUI 3 · 字母映射为默认预设");
-        if (settings.AutoStartConnection) _ = controller.StartAsync();
+        bool initialized = false;
+        root.Loaded += (_, _) => {
+            if (initialized) return;
+            initialized = true;
+            navigation.SelectedItem = navigation.MenuItems[0];
+            AppLog.Write("info", "NS2 Pro v0.2.0 已启动 · WinUI 3");
+            if (settings.AutoStartConnection) _ = controller.StartAsync();
+        };
     }
 
     private void AddNavigation(string label, string tag, string glyph) => navigation.MenuItems.Add(new NavigationViewItem {
@@ -117,20 +132,82 @@ public sealed class MainWindow : Window
             Child = new FontIcon { Glyph = "\uE7FC", FontFamily = new("Segoe Fluent Icons"), FontSize = 22, Foreground = Brush("FFFFFF") } },
             Text("NS2 Pro", 22, true), Text("一只手柄，自在切换", 11, false, "78858B") } };
 
+    // Each page owns its visual tree for its entire lifetime. Never reparent focused buttons,
+    // status elements, or a DirectX viewport while WinUI is processing navigation/focus events.
+    private sealed class LiveControls
+    {
+        public readonly TextBlock badge = Text("未连接", 12, true, "65777D");
+        public readonly TextBlock statusText = Text("准备好连接你的手柄", 14);
+        public readonly TextBlock addressText = Text("蓝牙 LE · 保留 NS2 配对", 12, false, "78858B");
+        public readonly TextBlock hzText = Text("—", 26, true);
+        public readonly TextBlock batteryText = Text("—", 26, true);
+        public readonly TextBlock inputText = Text("等待手柄连接", 12, false, "78858B");
+        public Controller3DView? Model;
+        public Controller3DView controllerView => Model ??= new();
+        public readonly StickPlot leftPlot = new(), rightPlot = new();
+        public readonly TextBlock leftValues = Text("X  +0.000    Y  +0.000", 12);
+        public readonly TextBlock rightValues = Text("X  +0.000    Y  +0.000", 12);
+        public readonly TextBlock leftOutput = Text("输出  0.000 / 0.000", 11, false, "78858B");
+        public readonly TextBlock rightOutput = Text("输出  0.000 / 0.000", 11, false, "78858B");
+        public readonly TextBlock leftOffset = Text("中心偏移  0.0%", 11, false, "78858B");
+        public readonly TextBlock rightOffset = Text("中心偏移  0.0%", 11, false, "78858B");
+        public readonly ProgressBar leftTrigger = new() { Maximum = 255, Height = 6, Value = 0 };
+        public readonly ProgressBar rightTrigger = new() { Maximum = 255, Height = 6, Value = 0 };
+        public readonly TextBlock xboxButtons = Text("—", 12);
+        public readonly TextBox logBox = new() { IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 190, MaxHeight = 260, FontFamily = new("Cascadia Mono"), FontSize = 11 };
+        public readonly Button connectButton = new() { Content = "连接手柄", HorizontalAlignment = HorizontalAlignment.Stretch, Height = 44 };
+        public readonly Button returnButton = new() { Content = "切回 NS2", HorizontalAlignment = HorizontalAlignment.Stretch, Height = 42 };
+        public readonly List<TextBlock> MappingLabels = new();
+        public readonly Dictionary<string, Border> InputChips = new();
+    }
+    private sealed record CachedPage(StackPanel Content, LiveControls Live, string Title, string Subtitle);
+    private void WireLiveControls()
+    {
+        connectButton.Background = Brush("187B78"); connectButton.Foreground = Brush("FFFFFF");
+        connectButton.Click += async (_, _) => await ToggleConnectionAsync();
+        returnButton.Click += async (_, _) => { await controller.StopAsync(); await ShowInfoAsync("可以回到 NS2 了", "PC 连接与虚拟手柄已断开。现在按手柄 HOME，正常连接 NS2 即可，无需重新配对。"); };
+    }
+    private void TryBuildPage()
+    {
+        try { BuildPage(); }
+        catch (Exception error) {
+            pageFailed = true;
+            AppLog.Write("error", "构建页面 " + selectedPage + ": " + error);
+            foreach (var cached in cachedPages.Values) cached.Content.Visibility = Visibility.Collapsed;
+            if (pageError is not null) pageHost.Children.Remove(pageError);
+            var retry = new Button { Content = "重新打开此页", HorizontalAlignment = HorizontalAlignment.Left };
+            retry.Click += (_, _) => TryBuildPage();
+            pageError = new StackPanel { Spacing = 14, Children = {
+                Text("此页面暂时无法显示", 20, true),
+                Text("后台连接继续运行。可以重试此页，或切换到其他页面。", 13), retry } };
+            pageHost.Children.Add(pageError);
+        }
+    }
     private void BuildPage()
     {
-        page.Children.Clear();
-        // These live controls are re-used between pages, so detach them from their old parents first.
-        foreach (var control in new FrameworkElement[] { controllerView, badge, statusText, addressText, hzText, batteryText, inputText,
-            connectButton, returnButton, leftPlot, rightPlot, leftValues, rightValues, leftOutput, rightOutput, leftOffset, rightOffset,
-            leftTrigger, rightTrigger, xboxButtons, logBox }) Detach(control);
-        switch (selectedPage) {
-            case "test": BuildTestPage(); break;
-            case "mapping": BuildMappingPage(); break;
-            case "settings": BuildSettingsPage(); break;
-            default: BuildOverview(); break;
+        pageFailed = false;
+        if (pageError is not null) { pageHost.Children.Remove(pageError); pageError = null; }
+        inputChips.Clear();
+        if (cachedPages.TryGetValue(selectedPage, out var cached)) {
+            page = cached.Content; live = cached.Live; title.Text = cached.Title; subtitle.Text = cached.Subtitle;
+        } else {
+            page = new StackPanel { Spacing = 22 }; live = new LiveControls(); WireLiveControls();
+            if (selectedPage is "overview" or "test") controllerView.Height = selectedPage == "test" ? 380 : 270;
+            switch (selectedPage) {
+                case "test": BuildTestPage(); break;
+                case "mapping": BuildMappingPage(); break;
+                case "settings": BuildSettingsPage(); break;
+                default: BuildOverview(); break;
+            }
+            cachedPages.Add(selectedPage, new(page, live, title.Text, subtitle.Text));
+            pageHost.Children.Add(page);
         }
+        foreach (var entry in cachedPages) entry.Value.Content.Visibility = entry.Key == selectedPage ? Visibility.Visible : Visibility.Collapsed;
+        // Reconnect the small input indicators when revisiting their cached page.
+        if (selectedPage == "test") foreach (var entry in live.InputChips) inputChips.Add(entry.Key, entry.Value);
+        if (selectedPage == "settings") logBox.Text = string.Join(Environment.NewLine, logLines);
         UpdateStatus(controller.Info); UpdateLiveInput();
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => pageScroll.ChangeView(null, 0, null, true));
     }
 
     private void BuildOverview()
@@ -161,13 +238,22 @@ public sealed class MainWindow : Window
 
     private void BuildTestPage()
     {
-        title.Text = "手柄测试"; subtitle.Text = "按下按键、转动摇杆，实时检查每一次输入。";
-        var device = new StackPanel { Spacing = 8, Children = { controllerView, inputText } };
-        var instructions = new StackPanel { Spacing = 12, Children = {
-            Text("实时输入", 18, true), badge, statusText, connectButton,
-            Text("按键亮起表示已收到输入。GL / GR / C / HOME 也会显示，但不发送到 Xbox 游戏。", 12, false, "78858B"),
-            Text("Xbox 当前按键", 12, true), xboxButtons } };
-        page.Children.Add(Columns(Card(device, 16), Card(instructions, 20), 1.7, 1));
+        title.Text = "手柄测试"; subtitle.Text = "每一次按下，都看得见。";
+        var instructions = new StackPanel { Spacing = 14, Children = { Text("输入状态", 14, true), badge, statusText, connectButton,
+            Text("需由本应用连接手柄。旧版控制台仍运行时，请先在原窗口按 Ctrl+C 结束连接，再在此连接并长按 SYNC。", 12, false, "78858B"),
+            Text("Xbox 游戏输出", 12, true), xboxButtons } };
+        var model = new StackPanel { Spacing = 8, Children = { controllerView,
+            Text("拖动旋转 · 滚轮缩放 · 切到背面查看 GL / GR", 11, false, "78858B"), inputText } };
+        page.Children.Add(Columns(Card(model, 12), Card(instructions, 20), 2.15, 1));
+        var keys = new StackPanel { Spacing = 12, Children = { Text("按键检测", 15, true) } };
+        var chips = new VariableSizedWrapGrid { Orientation = Orientation.Horizontal, ItemWidth = 58, ItemHeight = 38, MaximumRowsOrColumns = 12 };
+        foreach (string name in new[] { "A", "B", "X", "Y", "↑", "↓", "←", "→", "L", "R", "ZL", "ZR", "−", "+", "LS", "RS", "HOME", "截图", "C", "GL", "GR" }) {
+            var chip = new Border { CornerRadius = new(8), Margin = new(0, 0, 6, 6), Background = Brush("F0F3F3"), Child = Text(name, 12, true) };
+            ((TextBlock)chip.Child).HorizontalAlignment = HorizontalAlignment.Center; ((TextBlock)chip.Child).VerticalAlignment = VerticalAlignment.Center;
+            live.InputChips[name] = chip; chips.Children.Add(chip);
+        }
+        keys.Children.Add(chips); keys.Children.Add(Text("按住时亮起。HOME、截图、C、GL / GR 可检测，暂未映射到 Xbox 输出。", 11, false, "78858B"));
+        page.Children.Add(Card(keys, 20));
         var trail = new CheckBox { Content = "显示摇杆轨迹", IsChecked = leftPlot.ShowTrail };
         trail.Checked += (_, _) => leftPlot.ShowTrail = rightPlot.ShowTrail = true;
         trail.Unchecked += (_, _) => leftPlot.ShowTrail = rightPlot.ShowTrail = false;
@@ -182,16 +268,8 @@ public sealed class MainWindow : Window
 
     private void BuildMappingPage()
     {
-        title.Text = "按键映射"; subtitle.Text = "选一种顺手的方式，切换后立即生效。";
-        var labels = new RadioButton { Content = "字母对应", GroupName = "Layout", IsChecked = settings.Layout == ButtonLayout.Labels };
-        var positions = new RadioButton { Content = "物理布局", GroupName = "Layout", IsChecked = settings.Layout == ButtonLayout.Positions };
-        labels.Checked += (_, _) => ChangeLayout(ButtonLayout.Labels);
-        positions.Checked += (_, _) => ChangeLayout(ButtonLayout.Positions);
-        page.Children.Add(Columns(
-            Card(new StackPanel { Spacing = 12, Children = { labels, Text("看手柄上的字母操作", 18, true), Text("A → A   B → B   X → X   Y → Y", 14, true, "187B78"),
-                Text("游戏提示 A，就按手柄 A。默认推荐预设。", 12, false, "78858B") } }, 24),
-            Card(new StackPanel { Spacing = 12, Children = { positions, Text("跟随 Xbox 的按键位置", 18, true), Text("A → B   B → A   X → Y   Y → X", 14, true, "187B78"),
-                Text("手柄下方按键对应 Xbox A，适合习惯位置操作。", 12, false, "78858B") } }, 24), 1, 1));
+        title.Text = "按键映射"; subtitle.Text = "选择 ABXY 布局，立即应用到游戏输出。";
+        page.Children.Add(Columns(LayoutCard(ButtonLayout.Labels), LayoutCard(ButtonLayout.Positions), 1, 1));
         var detail = new StackPanel { Spacing = 18, Children = { Text("通用按键", 17, true), Text("L / R → LB / RB     ZL / ZR → LT / RT\n+ / − → Start / Back     摇杆按下 → LS / RS\n十字键和双摇杆保持方向对应。", 14) } };
         detail.Children.Add(Text("HOME、截图、C、GL / GR 可在手柄测试页检查；当前版本暂未将它们映射为游戏按键。", 12, false, "78858B"));
         page.Children.Add(Card(detail, 24));
@@ -261,6 +339,8 @@ public sealed class MainWindow : Window
     }
     private void UpdateStatus(ConnectionInfo info)
     {
+        if (pageFailed || !cachedPages.ContainsKey(selectedPage)) return;
+        UpdateMappingLabels();
         badge.Text = info.Phase switch { ConnectionPhase.Connected => "● 已连接", ConnectionPhase.Searching => "● 等待 SYNC", ConnectionPhase.Connecting => "● 连接中", ConnectionPhase.Error => "● 需要处理", _ => "○ 未连接" };
         badge.Foreground = Brush(info.Phase == ConnectionPhase.Connected ? "187B78" : info.Phase == ConnectionPhase.Error ? "AC6635" : "78858B");
         statusText.Text = info.Message;
@@ -272,10 +352,16 @@ public sealed class MainWindow : Window
     }
     private void UpdateLiveInput()
     {
+        if (pageFailed || !cachedPages.ContainsKey(selectedPage)) return;
         var state = controller.Input;
-        controllerView.Update(state);
+        if (selectedPage is "overview" or "test") controllerView.Update(state);
         batteryText.Text = state is null ? "—" : $"{state.BatteryPercent}%";
-        inputText.Text = state is null ? "等待手柄连接" : $"实时输入 · {controller.Info.Hertz:F1} Hz · {controller.Info.Reports:N0} 份报告";
+        inputText.Text = state is null ? "尚未接收输入 · 连接后自动开始检测" : $"● 正在接收 · {controller.Info.Hertz:F1} Hz · {controller.Info.Reports:N0} 份报告";
+        foreach (var (name, chip) in inputChips) {
+            bool pressed = PhysicalPressed(name, state);
+            chip.Background = Brush(pressed ? "187B78" : "F0F3F3");
+            ((TextBlock)chip.Child).Foreground = Brush(pressed ? "FFFFFF" : "516168");
+        }
         var left = state?.UnfilteredLeft ?? new(0, 0); var right = state?.UnfilteredRight ?? new(0, 0);
         var leftFiltered = state?.Left ?? new(0, 0); var rightFiltered = state?.Right ?? new(0, 0);
         leftPlot.Update(left, leftFiltered, settings.Deadzone); rightPlot.Update(right, rightFiltered, settings.Deadzone);
@@ -295,7 +381,7 @@ public sealed class MainWindow : Window
         if (input.LeftTrigger > 0) pressed.Add("LT"); if (input.RightTrigger > 0) pressed.Add("RT");
         return pressed.Count == 0 ? "未按下按键" : string.Join("  ·  ", pressed);
     }
-    private void ChangeLayout(ButtonLayout layout) { settings.Layout = layout; SaveSettings(); AppLog.Write("info", "映射预设：" + (layout == ButtonLayout.Labels ? "字母对应" : "物理布局")); }
+    private void ChangeLayout(ButtonLayout layout) { settings.Layout = layout; SaveSettings(); AppLog.Write("info", "映射预设：" + (layout == ButtonLayout.Labels ? "Nintendo 布局 · 字母对应" : "Xbox 布局 · 位置对应")); }
     private void SaveSettings() { try { settings.Save(); } catch (Exception error) { AppLog.Write("error", "保存设置失败：" + error.Message); } }
     private void SelectPage(string tag) => navigation.SelectedItem = navigation.MenuItems.OfType<NavigationViewItem>().First(x => (string)x.Tag == tag);
     private void LogWritten(string line) => DispatcherQueue.TryEnqueue(() => { logLines.Enqueue(line); while (logLines.Count > 80) logLines.Dequeue(); if (selectedPage == "settings") logBox.Text = string.Join(Environment.NewLine, logLines); });
@@ -306,17 +392,74 @@ public sealed class MainWindow : Window
         await controller.StopAsync(); timer.Stop(); tray?.Dispose(); exitAllowed = true; Close();
     }
 
+    private Border LayoutCard(ButtonLayout layout)
+    {
+        bool nintendo = layout == ButtonLayout.Labels;
+        var choice = new RadioButton { Content = nintendo ? "Nintendo 布局" : "Xbox 布局", GroupName = "Layout", IsChecked = settings.Layout == layout, FontSize = 18 };
+        AutomationProperties.SetName(choice, nintendo ? "Nintendo 布局，字母对应，A 对应 A" : "Xbox 布局，位置对应，A 对应 B");
+        var content = new StackPanel { Spacing = 15, Children = { choice,
+            Text(nintendo ? "字母对应" : "位置对应", 12, true, "187B78"),
+            Text(nintendo ? "游戏提示 A，对应手柄 A。" : "保持 Xbox 的 ABXY 按键位置。", 13, false, "78858B") } };
+        var diagrams = new Grid { ColumnSpacing = 6 };
+        diagrams.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
+        diagrams.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        diagrams.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
+        diagrams.Children.Add(ButtonDiamond(false, "手柄"));
+        var arrow = Text("→", 22, false, "8A969B"); arrow.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(arrow, 1); diagrams.Children.Add(arrow);
+        var output = ButtonDiamond(!nintendo, "游戏输出"); Grid.SetColumn(output, 2); diagrams.Children.Add(output);
+        content.Children.Add(diagrams);
+        content.Children.Add(Text(nintendo ? "A → A   B → B   X → X   Y → Y" : "A → B   B → A   X → Y   Y → X", 12, true, "516168"));
+        var card = Card(content, 22);
+        card.BorderBrush = Brush(settings.Layout == layout ? "187B78" : "E3E9E9");
+        card.Background = Brush(settings.Layout == layout ? "F5FAF8" : "FFFFFF");
+        choice.Checked += (_, _) => { card.BorderBrush = Brush("187B78"); card.Background = Brush("F5FAF8"); ChangeLayout(layout); };
+        choice.Unchecked += (_, _) => { card.BorderBrush = Brush("E3E9E9"); card.Background = Brush("FFFFFF"); };
+        card.Tapped += (_, _) => choice.IsChecked = true;
+        return card;
+    }
+
+    private static StackPanel ButtonDiamond(bool xbox, string label)
+    {
+        var grid = new Grid { Width = 110, Height = 110, HorizontalAlignment = HorizontalAlignment.Center };
+        for (int i = 0; i < 3; i++) { grid.RowDefinitions.Add(new()); grid.ColumnDefinitions.Add(new()); }
+        var letters = xbox ? new[] { "Y", "X", "B", "A" } : new[] { "X", "Y", "A", "B" };
+        var coordinates = new[] { (0, 1), (1, 0), (1, 2), (2, 1) };
+        for (int i = 0; i < 4; i++) {
+            var text = Text(letters[i], 13, true, "187B78"); text.HorizontalAlignment = HorizontalAlignment.Center; text.VerticalAlignment = VerticalAlignment.Center;
+            var key = new Border { Width = 31, Height = 31, CornerRadius = new(16), Background = Brush("EAF3F1"), Child = text };
+            Grid.SetRow(key, coordinates[i].Item1); Grid.SetColumn(key, coordinates[i].Item2); grid.Children.Add(key);
+        }
+        return new StackPanel { Spacing = 10, Children = { grid, new TextBlock { Text = label, FontSize = 11, Foreground = Brush("78858B"), HorizontalAlignment = HorizontalAlignment.Center } } };
+    }
+
+    private static bool PhysicalPressed(string name, ControllerInput? state)
+    {
+        int r = state?.RightButtons ?? 0, l = state?.LeftButtons ?? 0, e = state?.ExtraButtons ?? 0;
+        return name switch {
+            "B" => (r & 1) != 0, "A" => (r & 2) != 0, "Y" => (r & 4) != 0, "X" => (r & 8) != 0, "R" => (r & 16) != 0, "ZR" => (r & 32) != 0, "+" => (r & 64) != 0, "RS" => (r & 128) != 0,
+            "↓" => (l & 1) != 0, "→" => (l & 2) != 0, "←" => (l & 4) != 0, "↑" => (l & 8) != 0, "L" => (l & 16) != 0, "ZL" => (l & 32) != 0, "−" => (l & 64) != 0, "LS" => (l & 128) != 0,
+            "HOME" => (e & 1) != 0, "截图" => (e & 2) != 0, "GR" => (e & 4) != 0, "GL" => (e & 8) != 0, "C" => (e & 16) != 0, _ => false };
+    }
+
+    private void UpdateMappingLabels()
+    {
+        var labels = settings.Layout == ButtonLayout.Labels ? new[] { "A → A", "B → B", "X → X", "Y → Y" } : new[] { "A → B", "B → A", "X → Y", "Y → X" };
+        foreach (var cached in cachedPages.Values) for (int i = 0; i < cached.Live.MappingLabels.Count; i++) cached.Live.MappingLabels[i].Text = labels[i];
+    }
     private StackPanel MappingPreview()
     {
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
         var maps = settings.Layout == ButtonLayout.Labels ? new[] { "A → A", "B → B", "X → X", "Y → Y" } : new[] { "A → B", "B → A", "X → Y", "Y → X" };
-        foreach (var text in maps) row.Children.Add(new Border { Padding = new(16, 9, 16, 9), CornerRadius = new(9), Background = Brush("F0F6F5"), Child = Text(text, 13, true, "187B78") });
+        foreach (var text in maps) {
+            var label = Text(text, 13, true, "187B78"); live.MappingLabels.Add(label);
+            row.Children.Add(new Border { Padding = new(16, 9, 16, 9), CornerRadius = new(9), Background = Brush("F0F6F5"), Child = label });
+        }
         return row;
     }
     private static Border Metric(string label, TextBlock value, string detail) => Card(new StackPanel { Spacing = 7, Children = { Text(label, 12, false, "78858B"), value, Text(detail, 11, false, "8A969B") } }, 20);
     private static Border StickCard(string label, StickPlot plot, TextBlock values, TextBlock output, TextBlock offset) => Card(new StackPanel { Spacing = 8, Children = { Text(label, 15, true), plot, values, output, offset } }, 20);
     private static Border TriggerCard(string label, ProgressBar bar) => Card(new StackPanel { Spacing = 12, Children = { Text(label, 13, true), bar } }, 20);
-    private static Grid Columns(UIElement first, UIElement second, double a, double b, UIElement? third = null)
+    private static Grid Columns(FrameworkElement first, FrameworkElement second, double a, double b, FrameworkElement? third = null)
     {
         var grid = new Grid { ColumnSpacing = 18 };
         grid.ColumnDefinitions.Add(new() { Width = new(a, GridUnitType.Star) }); grid.ColumnDefinitions.Add(new() { Width = new(b, GridUnitType.Star) });
@@ -328,10 +471,4 @@ public sealed class MainWindow : Window
     private static TextBlock Text(string text, double size = 14, bool bold = false, string color = "263B43") => new() {
         Text = text, FontSize = size, TextWrapping = TextWrapping.Wrap, Foreground = Brush(color), FontWeight = bold ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal };
     private static SolidColorBrush Brush(string hex) => new(ColorHelper.FromArgb(255, Convert.ToByte(hex[..2], 16), Convert.ToByte(hex[2..4], 16), Convert.ToByte(hex[4..6], 16)));
-    private static void Detach(FrameworkElement element)
-    {
-        if (element.Parent is Panel panel) panel.Children.Remove(element);
-        else if (element.Parent is Border border) border.Child = null;
-        else if (element.Parent is ContentControl content) content.Content = null;
-    }
 }
