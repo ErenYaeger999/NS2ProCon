@@ -7,7 +7,7 @@
 发布版入口：`artifacts/NS2Pro/NS2Pro.exe`。打开后点击「连接手柄」，拔掉 USB，长按手柄顶部 SYNC，直到指示灯循环闪烁。
 
 - **连接总览**：连接 / 断开、报告频率、电量、Xbox 输出状态。
-- **手柄测试**：真正的三维网格手柄，可旋转、缩放、看背面，按键下压高亮、摇杆倾斜；另有按键指示灯、摇杆轨迹、轴数值、中心偏移、死区前后比较及数字扳机状态。
+- **手柄测试**：参考官方正面图绘制的原生矢量手柄，按键高亮、摇杆随输入移动；另有摇杆轨迹、轴数值、中心偏移、死区前后比较及数字扳机状态。
 - **按键映射**：Nintendo 布局（默认，A→A）和 Xbox 布局（按位置，A→B），配 ABXY 示意图；切换即时生效。支持 0–30% 摇杆死区。
 - **设置与诊断**：托盘常驻、启动后等待手柄、指定蓝牙地址、运行环境检查、日志与诊断复制。
 
@@ -21,7 +21,7 @@
 
 - C# / .NET 10，WinUI 3，Windows App SDK **2.5.1 stable**。
 - Windows 蓝牙 WinRT API；不使用 Electron 或 WebView 页面。
-- 三维渲染使用 HelixToolkit.WinUI.SharpDX **3.1.2**（原生 DirectX 11）。模型由项目代码生成，是按 NS2 Pro 特征绘制的三维示意模型，不是任天堂精确 CAD。
+- 预览由 WinUI 的 Path、Ellipse、渐变和变换组成，可独立驱动各个按键及双摇杆；不依赖照片底图、浏览器或三维渲染库。
 - ViGEmClient x64 与已有的 ViGEmBus 驱动用于虚拟 Xbox 输出。
 - Windows 最低构建 19041；本机验证环境为 Windows 11 x64，构建 22631。
 - 发布默认自包含 .NET 和 Windows App SDK。目标电脑仍需 BLE 适配器及 ViGEmBus 驱动。
@@ -60,9 +60,17 @@
 - 参考实现：[Switch2Connect](https://github.com/TommyWabg/Switch2Connect)、[switch2controllerpc](https://github.com/CareyScott/switch2controllerpc)
 - ViGEmClient 随 [vgamepad 0.1.0](https://pypi.org/project/vgamepad/0.1.0/) 发布；保留许可于 `third_party/vigem/LICENSE.txt`，发布目录也包含该许可。
 - 本次原生界面、协议解析与连接服务在项目中实现。REA 未参与实时蓝牙连接。
-- [Helix Toolkit](https://github.com/helix-toolkit/helix-toolkit)：MIT 许可，三维网格、材质、光照和交互相机；许可随发布文件保存。
 - 应用图标是本项目生成的简洁手柄图形，源脚本为 `tools/generate_icon.py`。
+- 手柄示意图上的 Switch 2 标志为原生矢量重绘，参考任天堂官方图案及 [Wikimedia 矢量标志页面](https://commons.wikimedia.org/wiki/File:Nintendo_Switch_2_logo_transparent_black.svg)，仅用于呈现所连接手柄的外观。
 
 ## 三维资源调研
 
-查到 [CGTrader 的 Switch 2 Pro Controller](https://www.cgtrader.com/3d-models/electronics/computer/pro-controller-2) 和 [TurboSquid 的 NS2 Pro](https://www.turbosquid.com/FullPreview/2405850) 等付费成品。未购买或捆绑这些资源；搜索到的免费老款 Switch Pro 模型不能当作 NS2 Pro 使用。当前采用自建示意模型，各个输入部件独立，便于实时驱动。
+外形以[任天堂官方正面图](https://www.nintendo.com/hk/hardware/switch2/accessories/assets/img/top/controller_switcher_img01.png)为依据：深色主体和握把、浅色肩部、正面中央下方的方形 C 键，以及一体式十字键。
+
+检索 MakerWorld / 拓竹与[创想云](https://www.crealitycloud.com/model-tags/switch-2-pro-controller)后，确认到的相关打印文件主要是支架和收纳盒，尚未找到可直接用作交互预览的免费完整手柄模型。打印 STL 即使外形合适，也还需检查分件、法线、材质和使用授权。
+
+付费候选包括 [CGTrader 的 Switch 2 Pro Controller](https://www.cgtrader.com/3d-models/electronics/computer/pro-controller-2)（2026-10-16 页面标价 US$25，提供 OBJ/FBX/glTF/Blender）与 [TurboSquid 的 NS2 Pro](https://www.turbosquid.com/FullPreview/2405850)。未购买或捆绑；页面格式说明不能证明按键均为独立对象，随应用分发前还需确认授权。
+
+自建合格三维资源需要 Blender 等建模工具、正面/背面/侧面参考、外壳曲面与比例校正、独立按键和摇杆轴心、材质/贴图及多视角验收。当前机器未检测到 Blender；现有正面图不足以精确还原背面和厚度。这些工作明显超出单纯绘制几何体，因此按用户授权采用准确的二维矢量方案。微软的 [XAML Shapes / Geometry](https://learn.microsoft.com/en-us/windows/apps/develop/ui/controls/shapes) 支持与 SVG 路径兼容的几何绘制及独立变换。
+
+早期三维预览保存在本地提交 `d671f60`，用于保留试验过程，不作为最终外观。

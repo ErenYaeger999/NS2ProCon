@@ -18,7 +18,7 @@ try {
     }
     if ($LASTEXITCODE -ne 0) { throw 'Native app build failed' }
     if ($Publish) {
-        foreach ($ns2Required in @('NS2Pro.exe', 'NS2Pro.dll', 'NS2Pro.pri', 'ViGEmClient.dll', 'Assets\App.ico', 'HelixToolkit.WinUI.SharpDX.dll', 'Licenses\HelixToolkit.txt', 'Licenses\SharpDX.txt', 'Licenses\ViGEmClient.txt')) {
+        foreach ($ns2Required in @('NS2Pro.exe', 'NS2Pro.dll', 'NS2Pro.pri', 'ViGEmClient.dll', 'Assets\App.ico', 'Licenses\ViGEmClient.txt')) {
             $ns2RequiredPath = Join-Path 'artifacts\NS2Pro' $ns2Required
             if (-not (Test-Path -LiteralPath $ns2RequiredPath)) { throw "Published file missing: $ns2Required" }
         }

@@ -22,7 +22,6 @@ public sealed class MainWindow : Window
     private readonly ScrollViewer pageScroll = new() { HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
     private readonly TextBlock title = Text("连接总览", 28, true);
     private readonly TextBlock subtitle = Text("连接 PC，随时回到主机。", 13, false, "78858B");
-    private readonly Dictionary<string, Border> inputChips = new();
     private LiveControls live = new();
     private readonly Grid pageHost = new();
     private readonly Dictionary<string, CachedPage> cachedPages = new();
@@ -34,7 +33,7 @@ public sealed class MainWindow : Window
     private TextBlock hzText => live.hzText;
     private TextBlock batteryText => live.batteryText;
     private TextBlock inputText => live.inputText;
-    private Controller3DView controllerView => live.controllerView;
+    private ControllerFaceView controllerView => live.controllerView;
     private StickPlot leftPlot => live.leftPlot;
     private StickPlot rightPlot => live.rightPlot;
     private TextBlock leftValues => live.leftValues;
@@ -133,7 +132,7 @@ public sealed class MainWindow : Window
             Text("NS2 Pro", 22, true), Text("一只手柄，自在切换", 11, false, "78858B") } };
 
     // Each page owns its visual tree for its entire lifetime. Never reparent focused buttons,
-    // status elements, or a DirectX viewport while WinUI is processing navigation/focus events.
+    // status elements, or a live preview while WinUI is processing navigation/focus events.
     private sealed class LiveControls
     {
         public readonly TextBlock badge = Text("未连接", 12, true, "65777D");
@@ -142,8 +141,8 @@ public sealed class MainWindow : Window
         public readonly TextBlock hzText = Text("—", 26, true);
         public readonly TextBlock batteryText = Text("—", 26, true);
         public readonly TextBlock inputText = Text("等待手柄连接", 12, false, "78858B");
-        public Controller3DView? Model;
-        public Controller3DView controllerView => Model ??= new();
+        public ControllerFaceView? Model;
+        public ControllerFaceView controllerView => Model ??= new();
         public readonly StickPlot leftPlot = new(), rightPlot = new();
         public readonly TextBlock leftValues = Text("X  +0.000    Y  +0.000", 12);
         public readonly TextBlock rightValues = Text("X  +0.000    Y  +0.000", 12);
@@ -158,7 +157,6 @@ public sealed class MainWindow : Window
         public readonly Button connectButton = new() { Content = "连接手柄", HorizontalAlignment = HorizontalAlignment.Stretch, Height = 44 };
         public readonly Button returnButton = new() { Content = "切回 NS2", HorizontalAlignment = HorizontalAlignment.Stretch, Height = 42 };
         public readonly List<TextBlock> MappingLabels = new();
-        public readonly Dictionary<string, Border> InputChips = new();
     }
     private sealed record CachedPage(StackPanel Content, LiveControls Live, string Title, string Subtitle);
     private void WireLiveControls()
@@ -187,7 +185,6 @@ public sealed class MainWindow : Window
     {
         pageFailed = false;
         if (pageError is not null) { pageHost.Children.Remove(pageError); pageError = null; }
-        inputChips.Clear();
         if (cachedPages.TryGetValue(selectedPage, out var cached)) {
             page = cached.Content; live = cached.Live; title.Text = cached.Title; subtitle.Text = cached.Subtitle;
         } else {
@@ -203,8 +200,6 @@ public sealed class MainWindow : Window
             pageHost.Children.Add(page);
         }
         foreach (var entry in cachedPages) entry.Value.Content.Visibility = entry.Key == selectedPage ? Visibility.Visible : Visibility.Collapsed;
-        // Reconnect the small input indicators when revisiting their cached page.
-        if (selectedPage == "test") foreach (var entry in live.InputChips) inputChips.Add(entry.Key, entry.Value);
         if (selectedPage == "settings") logBox.Text = string.Join(Environment.NewLine, logLines);
         UpdateStatus(controller.Info); UpdateLiveInput();
         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => pageScroll.ChangeView(null, 0, null, true));
@@ -243,17 +238,8 @@ public sealed class MainWindow : Window
             Text("需由本应用连接手柄。旧版控制台仍运行时，请先在原窗口按 Ctrl+C 结束连接，再在此连接并长按 SYNC。", 12, false, "78858B"),
             Text("Xbox 游戏输出", 12, true), xboxButtons } };
         var model = new StackPanel { Spacing = 8, Children = { controllerView,
-            Text("拖动旋转 · 滚轮缩放 · 切到背面查看 GL / GR", 11, false, "78858B"), inputText } };
+            Text("按键亮起 · 摇杆随输入移动", 11, false, "78858B"), inputText } };
         page.Children.Add(Columns(Card(model, 12), Card(instructions, 20), 2.15, 1));
-        var keys = new StackPanel { Spacing = 12, Children = { Text("按键检测", 15, true) } };
-        var chips = new VariableSizedWrapGrid { Orientation = Orientation.Horizontal, ItemWidth = 58, ItemHeight = 38, MaximumRowsOrColumns = 12 };
-        foreach (string name in new[] { "A", "B", "X", "Y", "↑", "↓", "←", "→", "L", "R", "ZL", "ZR", "−", "+", "LS", "RS", "HOME", "截图", "C", "GL", "GR" }) {
-            var chip = new Border { CornerRadius = new(8), Margin = new(0, 0, 6, 6), Background = Brush("F0F3F3"), Child = Text(name, 12, true) };
-            ((TextBlock)chip.Child).HorizontalAlignment = HorizontalAlignment.Center; ((TextBlock)chip.Child).VerticalAlignment = VerticalAlignment.Center;
-            live.InputChips[name] = chip; chips.Children.Add(chip);
-        }
-        keys.Children.Add(chips); keys.Children.Add(Text("按住时亮起。HOME、截图、C、GL / GR 可检测，暂未映射到 Xbox 输出。", 11, false, "78858B"));
-        page.Children.Add(Card(keys, 20));
         var trail = new CheckBox { Content = "显示摇杆轨迹", IsChecked = leftPlot.ShowTrail };
         trail.Checked += (_, _) => leftPlot.ShowTrail = rightPlot.ShowTrail = true;
         trail.Unchecked += (_, _) => leftPlot.ShowTrail = rightPlot.ShowTrail = false;
@@ -270,8 +256,14 @@ public sealed class MainWindow : Window
     {
         title.Text = "按键映射"; subtitle.Text = "选择 ABXY 布局，立即应用到游戏输出。";
         page.Children.Add(Columns(LayoutCard(ButtonLayout.Labels), LayoutCard(ButtonLayout.Positions), 1, 1));
-        var detail = new StackPanel { Spacing = 18, Children = { Text("通用按键", 17, true), Text("L / R → LB / RB     ZL / ZR → LT / RT\n+ / − → Start / Back     摇杆按下 → LS / RS\n十字键和双摇杆保持方向对应。", 14) } };
-        detail.Children.Add(Text("HOME、截图、C、GL / GR 可在手柄测试页检查；当前版本暂未将它们映射为游戏按键。", 12, false, "78858B"));
+        var detail = new StackPanel { Spacing = 14, Children = { Text("通用映射", 17, true), Text("NS2 Pro  →  Xbox 游戏输出", 11, false, "78858B") } };
+        detail.Children.Add(Columns(MappingTile("肩键", Keycaps(false, false, "L", "R"), Keycaps(true, false, "LB", "RB")),
+            MappingTile("扳机", Keycaps(false, false, "ZL", "ZR"), Keycaps(true, false, "LT", "RT")), 1, 1));
+        detail.Children.Add(Columns(MappingTile("菜单", Keycaps(false, false, "+", "−"), Keycaps(true, false, "Start", "Back")),
+            MappingTile("摇杆按下", Keycaps(false, true, "L↓", "R↓"), Keycaps(true, true, "LS", "RS")), 1, 1));
+        detail.Children.Add(Columns(MappingTile("十字键", DirectionPad(false), DirectionPad(true)),
+            MappingTile("双摇杆", Keycaps(false, true, "L", "R"), Keycaps(true, true, "L", "R")), 1, 1));
+        detail.Children.Add(Text("HOME、截图、C、GL / GR 仅用于输入检测，暂未映射到 Xbox 输出。", 11, false, "78858B"));
         page.Children.Add(Card(detail, 24));
         var deadzone = new StackPanel { Spacing = 10, Children = { Text("摇杆死区", 17, true), Text("轻微中心偏移由死区过滤；可以到手柄测试页查看处理前后的差别。", 12, false, "78858B") } };
         var value = Text($"{settings.Deadzone:P0}", 14, true, "187B78");
@@ -357,11 +349,6 @@ public sealed class MainWindow : Window
         if (selectedPage is "overview" or "test") controllerView.Update(state);
         batteryText.Text = state is null ? "—" : $"{state.BatteryPercent}%";
         inputText.Text = state is null ? "尚未接收输入 · 连接后自动开始检测" : $"● 正在接收 · {controller.Info.Hertz:F1} Hz · {controller.Info.Reports:N0} 份报告";
-        foreach (var (name, chip) in inputChips) {
-            bool pressed = PhysicalPressed(name, state);
-            chip.Background = Brush(pressed ? "187B78" : "F0F3F3");
-            ((TextBlock)chip.Child).Foreground = Brush(pressed ? "FFFFFF" : "516168");
-        }
         var left = state?.UnfilteredLeft ?? new(0, 0); var right = state?.UnfilteredRight ?? new(0, 0);
         var leftFiltered = state?.Left ?? new(0, 0); var rightFiltered = state?.Right ?? new(0, 0);
         leftPlot.Update(left, leftFiltered, settings.Deadzone); rightPlot.Update(right, rightFiltered, settings.Deadzone);
@@ -432,13 +419,42 @@ public sealed class MainWindow : Window
         return new StackPanel { Spacing = 10, Children = { grid, new TextBlock { Text = label, FontSize = 11, Foreground = Brush("78858B"), HorizontalAlignment = HorizontalAlignment.Center } } };
     }
 
-    private static bool PhysicalPressed(string name, ControllerInput? state)
+    private static Border MappingTile(string label, FrameworkElement source, FrameworkElement output)
     {
-        int r = state?.RightButtons ?? 0, l = state?.LeftButtons ?? 0, e = state?.ExtraButtons ?? 0;
-        return name switch {
-            "B" => (r & 1) != 0, "A" => (r & 2) != 0, "Y" => (r & 4) != 0, "X" => (r & 8) != 0, "R" => (r & 16) != 0, "ZR" => (r & 32) != 0, "+" => (r & 64) != 0, "RS" => (r & 128) != 0,
-            "↓" => (l & 1) != 0, "→" => (l & 2) != 0, "←" => (l & 4) != 0, "↑" => (l & 8) != 0, "L" => (l & 16) != 0, "ZL" => (l & 32) != 0, "−" => (l & 64) != 0, "LS" => (l & 128) != 0,
-            "HOME" => (e & 1) != 0, "截图" => (e & 2) != 0, "GR" => (e & 4) != 0, "GL" => (e & 8) != 0, "C" => (e & 16) != 0, _ => false };
+        var bridge = new Grid { ColumnSpacing = 12, Margin = new(0, 7, 0, 0) };
+        bridge.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
+        bridge.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        bridge.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
+        source.HorizontalAlignment = output.HorizontalAlignment = HorizontalAlignment.Center;
+        bridge.Children.Add(source);
+        var arrow = new FontIcon { Glyph = "\uE72A", FontFamily = new("Segoe Fluent Icons"), FontSize = 17, Foreground = Brush("9AA9AD"), VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetColumn(arrow, 1); bridge.Children.Add(arrow); Grid.SetColumn(output, 2); bridge.Children.Add(output);
+        return new Border { Background = Brush("F5F8F7"), CornerRadius = new(12), Padding = new(16, 13, 16, 15),
+            Child = new StackPanel { Spacing = 4, Children = { Text(label, 12, true, "667C82"), bridge } } };
+    }
+
+    private static StackPanel Keycaps(bool output, bool round, params string[] labels)
+    {
+        var pair = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+        foreach (var label in labels) {
+            var text = Text(label, label.Length > 3 ? 11 : 13, true, output ? "FFFFFF" : "3C565E");
+            text.HorizontalAlignment = HorizontalAlignment.Center; text.VerticalAlignment = VerticalAlignment.Center;
+            var key = new Border { Width = label.Length > 3 ? 54 : 40, Height = 36, CornerRadius = new(round ? 18 : 8),
+                Background = Brush(output ? "247F79" : "FFFFFF"), BorderBrush = Brush(output ? "247F79" : "D8E2E1"), BorderThickness = new(1), Child = text };
+            pair.Children.Add(key);
+        }
+        return pair;
+    }
+
+    private static Viewbox DirectionPad(bool output)
+    {
+        var canvas = new Microsoft.UI.Xaml.Controls.Canvas { Width = 44, Height = 44 };
+        var path = (Microsoft.UI.Xaml.Shapes.Path)Microsoft.UI.Xaml.Markup.XamlReader.Load("<Path xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' Data='M 16 2 Q 14 2 14 4 L 14 14 L 4 14 Q 2 14 2 16 L 2 28 Q 2 30 4 30 L 14 30 L 14 40 Q 14 42 16 42 L 28 42 Q 30 42 30 40 L 30 30 L 40 30 Q 42 30 42 28 L 42 16 Q 42 14 40 14 L 30 14 L 30 4 Q 30 2 28 2 Z'/>");
+        path.Fill = Brush(output ? "247F79" : "FFFFFF"); path.Stroke = Brush(output ? "247F79" : "D8E2E1"); path.StrokeThickness = 1;
+        canvas.Children.Add(path);
+        var center = Text("+", 19, true, output ? "D5EDE8" : "667C82"); center.Width = center.Height = 44; center.TextAlignment = TextAlignment.Center;
+        center.VerticalAlignment = VerticalAlignment.Center; center.Padding = new(0, 7, 0, 0); canvas.Children.Add(center);
+        return new Viewbox { Width = 44, Height = 40, Child = canvas, VerticalAlignment = VerticalAlignment.Center };
     }
 
     private void UpdateMappingLabels()

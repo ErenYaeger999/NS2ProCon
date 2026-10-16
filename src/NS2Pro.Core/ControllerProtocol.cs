@@ -111,6 +111,16 @@ public static class ControllerProtocol
         return request;
     }
 
+    public static bool IsPressed(string name, ControllerInput? state)
+    {
+        int r=state?.RightButtons??0,l=state?.LeftButtons??0,e=state?.ExtraButtons??0;
+        return name switch {
+            "B"=>(r&1)!=0,"A"=>(r&2)!=0,"Y"=>(r&4)!=0,"X"=>(r&8)!=0,"R"=>(r&16)!=0,"ZR"=>(r&32)!=0,"+"=>(r&64)!=0,"RS"=>(r&128)!=0,
+            "↓"=>(l&1)!=0,"→"=>(l&2)!=0,"←"=>(l&4)!=0,"↑"=>(l&8)!=0,"L"=>(l&16)!=0,"ZL"=>(l&32)!=0,"−"=>(l&64)!=0,"LS"=>(l&128)!=0,
+            "HOME"=>(e&1)!=0,"截图" or "□"=>(e&2)!=0,"GR"=>(e&4)!=0,"GL"=>(e&8)!=0,"C"=>(e&16)!=0,_=>false
+        };
+    }
+
     public static byte[] ParseCalibrationResponse(ReadOnlySpan<byte> response, uint address)
     {
         if (response.Length < 27 || response[0] != 2 || response[1] != 1 || response[3] != 4 ||

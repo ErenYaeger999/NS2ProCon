@@ -33,6 +33,18 @@ Check(triggers.LeftTrigger == 255 && triggers.RightTrigger == 255, "Digital trig
 var extraPacket = (byte[])recorded.Clone(); extraPacket[4] = 31;
 var extras = ControllerProtocol.Decode(extraPacket,lc,rc,ButtonLayout.Labels);
 Check(extras.ExtraButtons == 31 && extras.Xbox.Buttons == 0, "Extra inputs observed without OS shortcuts");
+var physicalKeys = new (string Name,int Channel,byte Bit)[] {
+    ("B",2,1),("A",2,2),("Y",2,4),("X",2,8),("R",2,16),("ZR",2,32),("+",2,64),("RS",2,128),
+    ("↓",3,1),("→",3,2),("←",3,4),("↑",3,8),("L",3,16),("ZL",3,32),("−",3,64),("LS",3,128),
+    ("HOME",4,1),("截图",4,2),("GR",4,4),("GL",4,8),("C",4,16)
+};
+foreach(var key in physicalKeys) {
+    var packet=(byte[])recorded.Clone();packet[key.Channel]=key.Bit;
+    var decoded=ControllerProtocol.Decode(packet,lc,rc,ButtonLayout.Labels);
+    var lit=physicalKeys.Where(k=>ControllerProtocol.IsPressed(k.Name,decoded)).Select(k=>k.Name).ToArray();
+    Check(lit.Length==1&&lit[0]==key.Name,"Physical preview isolates "+key.Name);
+}
+Check(physicalKeys.All(k=>!ControllerProtocol.IsPressed(k.Name,null)),"Disconnected preview has no lit keys");
 Check(ControllerProtocol.Normalize(new(2020,2183),lc,.06) == new Stick(0,0), "Deadzone suppresses small drift");
 Check(ControllerProtocol.Normalize(new(2020,2183),lc,0).X > 0, "Tester retains input before deadzone");
 Check(ControllerProtocol.ParseCalibration(new byte[11]) is null, "Reject missing calibration");

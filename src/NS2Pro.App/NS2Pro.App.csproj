@@ -18,11 +18,9 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
-    <PackageReference Include="HelixToolkit.WinUI.SharpDX" Version="3.1.2" />
     <ProjectReference Include="..\NS2Pro.Core\NS2Pro.Core.csproj" />
     <Content Include="..\..\third_party\vigem\ViGEmClient.dll" Link="ViGEmClient.dll" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\third_party\vigem\LICENSE.txt" Link="Licenses\ViGEmClient.txt" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="..\..\third_party\licenses\*.txt" Link="Licenses\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\App.ico" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="PublishAppResources" AfterTargets="Publish">
