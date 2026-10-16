@@ -84,6 +84,20 @@ var connectedUser = new NS2Pro.App.Services.AppSettings { HasCompletedFirstConne
 connectedUser.Normalize();
 Check(connectedUser.HasSeenConnectionGuide && !connectedUser.ShouldShowConnectionGuide, "A previously connected user does not repeat onboarding");
 Check(!System.Text.Json.JsonSerializer.Serialize(fresh).Contains("ShouldShowConnectionGuide"), "Derived launch routing is not written as a user setting");
+Check(!new NS2Pro.App.Services.AppSettings().CloseToTray, "Close button exits by default");
+Check(!NS2Pro.App.Services.AppSettings.FromJson("{\"MinimizeToTray\":true}").CloseToTray, "Legacy implicit tray setting does not keep the app running after close");
+Check(NS2Pro.App.Services.AppSettings.FromJson("{\"CloseToTray\":true}").CloseToTray, "Explicit background-running preference survives restart");
+foreach (var phase in Enum.GetValues<NS2Pro.App.Services.ConnectionPhase>()) {
+    var connection = new NS2Pro.App.Services.ConnectionInfo(phase, "");
+    Check(!(connection.CanStart && connection.CanStop), "A connection state cannot offer start and stop simultaneously: " + phase);
+    Check(connection.IsActive == !connection.CanStart, "Guide and main action agree on active states: " + phase);
+}
+var waiting = new NS2Pro.App.Services.ConnectionInfo(NS2Pro.App.Services.ConnectionPhase.WaitingForInput, "");
+Check(waiting.HasLink && waiting.CanStop && waiting.ActionText == "断开 PC 连接", "A link waiting for input can be disconnected without advertising ready input");
+var failure = new NS2Pro.App.Services.ConnectionInfo(NS2Pro.App.Services.ConnectionPhase.Error, "");
+Check(failure.CanStart && failure.ActionText == "重试连接", "Stopped failure has an explicit retry action");
+var stopping = new NS2Pro.App.Services.ConnectionInfo(NS2Pro.App.Services.ConnectionPhase.Stopping, "");
+Check(!stopping.CanStart && !stopping.CanStop, "Disconnecting cannot be interrupted by another connection action");
 var notices = new NS2Pro.App.Services.AppSettings();
 Check(notices.ShouldShowConnectionNotice && notices.ConnectionNoticeDismissCount == 0, "New and legacy settings start with the combined connection notice enabled");
 for (int count = 1; count <= 3; count++) {

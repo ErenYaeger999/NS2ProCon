@@ -9,9 +9,6 @@ using Windows.Storage.Streams;
 
 namespace NS2Pro.App.Services;
 
-public enum ConnectionPhase { Idle, Preparing, Searching, Connecting, Connected, Stopping, Error }
-public sealed record ConnectionInfo(ConnectionPhase Phase, string Message, string? Address = null, double Hertz = 0, long Reports = 0);
-
 public sealed class ControllerService(AppSettings settings)
 {
     public static readonly Guid InputUuid = new("7492866c-ec3e-4619-8258-32755ffcc0f8");
@@ -49,13 +46,14 @@ public sealed class ControllerService(AppSettings settings)
     {
         await lifecycle.WaitAsync();
         try {
+            bool hadLink = info.HasLink;
             if (running is { IsCompleted: false }) {
                 Publish(ConnectionPhase.Stopping, "正在安全断开连接…", info.Address);
                 cancellation!.Cancel();
                 await running;
             }
             input = null;
-            Publish(ConnectionPhase.Idle, "PC 连接已结束，可以按 HOME 回到 NS2");
+            Publish(ConnectionPhase.Idle, hadLink ? "PC 连接已断开。如需回到 NS2，请按 HOME。" : "已取消连接");
             AppLog.Write("info", "连接已停止，虚拟手柄已释放");
         } finally { lifecycle.Release(); }
     }
@@ -83,15 +81,16 @@ public sealed class ControllerService(AppSettings settings)
             AppLog.Write("info", await CheckBluetoothAsync(true));
             // Verify the installed driver without retaining a virtual device while scanning.
             VirtualGamepad.EnsureDriverAvailable();
+            bool reconnecting = false;
             while (!token.IsCancellationRequested) {
-                Publish(ConnectionPhase.Searching, "长按手柄顶部 SYNC，直到指示灯循环闪烁");
+                Publish(ConnectionPhase.Searching, reconnecting ? "连接已断开，请长按顶部 SYNC 重新连接" : "长按手柄顶部 SYNC，直到指示灯循环闪烁");
                 var address = await WaitForControllerAsync(token);
-                try { await ConnectAsync(address, token); }
+                try { await ConnectAsync(address, token); reconnecting = true; }
                 catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
                 catch (Exception error) {
                     AppLog.Write("error", error.Message);
                     Publish(ConnectionPhase.Error, error.Message, FormatAddress(address));
-                    await Task.Delay(2500, token);
+                    return; // Error is a stopped state: the retry button starts a fresh attempt.
                 }
             }
         } catch (OperationCanceledException) when (token.IsCancellationRequested) { }
@@ -102,6 +101,7 @@ public sealed class ControllerService(AppSettings settings)
     private async Task<ulong> WaitForControllerAsync(CancellationToken token)
     {
         var ready = new TaskCompletionSource<ulong>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var targetAddress = settings.LastControllerAddress;
         var watcher = new BluetoothLEAdvertisementWatcher { ScanningMode = BluetoothLEScanningMode.Passive };
         watcher.Received += (_, args) => {
             foreach (var manufacturer in args.Advertisement.ManufacturerData) {
@@ -109,7 +109,7 @@ public sealed class ControllerService(AppSettings settings)
                 var decoded = ControllerProtocol.ParseAdvertisement(ReadBuffer(manufacturer.Data));
                 if (decoded?.Kind != AdvertisementKind.Discovery) continue;
                 var address = FormatAddress(args.BluetoothAddress);
-                if (settings.LastControllerAddress.Length > 0 && !address.Equals(settings.LastControllerAddress, StringComparison.OrdinalIgnoreCase)) continue;
+                if (targetAddress.Length > 0 && !address.Equals(targetAddress, StringComparison.OrdinalIgnoreCase)) continue;
                 ready.TrySetResult(args.BluetoothAddress);
             }
         };
@@ -185,12 +185,21 @@ public sealed class ControllerService(AppSettings settings)
             try { settings.Save(); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException) { AppLog.Write("warn", "手柄已连接，但无法记住地址：" + error.Message); }
             AppLog.Write("info", "蓝牙与 Xbox 360 输出已连接，未写入配对资料");
+            long subscribedAt = Stopwatch.GetTimestamp(), lastPublishedAt = subscribedAt, lastCount = 0;
             while (!token.IsCancellationRequested && !disconnected.Task.IsCompleted) {
                 await Task.Delay(250, token);
-                Publish(ConnectionPhase.Connected, "已连接到 PC，游戏可识别为 Xbox 360 手柄", mac, count / Math.Max(clock.Elapsed.TotalSeconds, .001), count);
-                if (Stopwatch.GetElapsedTime(Interlocked.Read(ref lastTicks)).TotalSeconds > 1) {
-                    lock (outputGate) { output.Update(default); input = null; }
+                bool receiving;
+                lock (outputGate) {
+                    receiving = input is not null && Stopwatch.GetElapsedTime(Interlocked.Read(ref lastTicks)).TotalSeconds <= 1;
+                    if (!receiving) { output.Update(default); input = null; }
                 }
+                long total = Interlocked.Read(ref count), now = Stopwatch.GetTimestamp();
+                if (total == 0 && Stopwatch.GetElapsedTime(subscribedAt, now).TotalSeconds > 10)
+                    throw new IOException("蓝牙已连接，但未收到手柄输入。请重试连接，并再次长按 SYNC。");
+                double hertz = (total - lastCount) / Math.Max(Stopwatch.GetElapsedTime(lastPublishedAt, now).TotalSeconds, .001);
+                lastCount = total; lastPublishedAt = now;
+                Publish(receiving ? ConnectionPhase.Connected : ConnectionPhase.WaitingForInput,
+                    receiving ? "已连接到 PC，可以开始游戏" : total == 0 ? "蓝牙已建立，正在等待手柄输入…" : "输入暂时中断，正在等待恢复…", mac, receiving ? hertz : 0, total);
             }
             if (disconnected.Task.IsCompleted) await disconnected.Task;
         } finally {

@@ -55,12 +55,14 @@ public sealed partial class MainWindow : Window
     private TextBlock xboxButtons => live.xboxButtons;
     private TextBox logBox => live.logBox;
     private Button connectButton => live.connectButton;
-    private Button returnButton => live.returnButton;
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(33) };
     private TrayIcon? tray;
     private bool exiting, exitAllowed;
     private string selectedPage = "overview";
     private readonly Queue<string> logLines = new();
+    private TextBox? addressEditor;
+    private bool addressDirty, updatingAddress;
+    private bool hadLiveInput;
 
     public MainWindow()
     {
@@ -131,7 +133,7 @@ public sealed partial class MainWindow : Window
         AppWindow.Closing += async (_, args) => {
             if (exitAllowed) return;
             args.Cancel = true;
-            if (settings.MinimizeToTray && tray is not null) NativeMethods.ShowWindow(hwnd, 0);
+            if (settings.CloseToTray && tray is not null) NativeMethods.ShowWindow(hwnd, 0);
             else await ExitAsync();
         };
         Closed += (_, _) => { timer.Stop(); foreach (var cached in cachedPages.Values) cached.Live.Model?.Dispose(); tray?.Dispose(); AppLog.LineWritten -= LogWritten; };
@@ -148,7 +150,7 @@ public sealed partial class MainWindow : Window
             settings.HasSeenConnectionGuide = true; SaveSettings();
             SelectPage(showGuide ? "setup" : "overview");
             AppLog.Write("info", $"{AppIdentity.DisplayName} v{AppVersion} 已启动 · WinUI 3");
-            if (settings.AutoStartConnection && settings.HasCompletedFirstConnection) _ = controller.StartAsync();
+            if (settings.AutoStartConnection && !AppSettings.IsPreview) _ = controller.StartAsync();
         };
     }
 
@@ -165,6 +167,7 @@ public sealed partial class MainWindow : Window
     {
         public readonly TextBlock badge = Text("未连接", 12, true, "666666");
         public readonly TextBlock statusText = Text("", 14);
+        public readonly TextBlock connectionHint = Text("先点击连接，再长按手柄顶部的 SYNC 小键。", 13, false, AppPalette.Muted);
         public readonly TextBlock addressText = Text("蓝牙 LE · 保留 NS2 配对", 12, false, AppPalette.Muted);
         public readonly TextBlock hzText = Text("—", 26, true);
         public readonly TextBlock batteryText = Text("—", 26, true);
@@ -176,18 +179,19 @@ public sealed partial class MainWindow : Window
         public ControllerFaceView? Model;
         public ControllerFaceView controllerView => Model ??= new();
         public readonly StickPlot leftPlot = new(), rightPlot = new();
-        public readonly TextBlock leftValues = Text("X  +0.000    Y  +0.000", 12);
-        public readonly TextBlock rightValues = Text("X  +0.000    Y  +0.000", 12);
-        public readonly TextBlock leftOutput = Text("输出  0.000 / 0.000", 11, false, AppPalette.Muted);
-        public readonly TextBlock rightOutput = Text("输出  0.000 / 0.000", 11, false, AppPalette.Muted);
-        public readonly TextBlock leftOffset = Text("中心偏移  0.0%", 11, false, AppPalette.Muted);
-        public readonly TextBlock rightOffset = Text("中心偏移  0.0%", 11, false, AppPalette.Muted);
+        public readonly TextBlock leftValues = Text("X  —    Y  —", 12);
+        public readonly TextBlock rightValues = Text("X  —    Y  —", 12);
+        public readonly TextBlock leftOutput = Text("输出  — / —", 11, false, AppPalette.Muted);
+        public readonly TextBlock rightOutput = Text("输出  — / —", 11, false, AppPalette.Muted);
+        public readonly TextBlock leftOffset = Text("中心偏移  —", 11, false, AppPalette.Muted);
+        public readonly TextBlock rightOffset = Text("中心偏移  —", 11, false, AppPalette.Muted);
         public readonly ProgressBar leftTrigger = new() { Maximum = 255, Height = 6, Value = 0 };
         public readonly ProgressBar rightTrigger = new() { Maximum = 255, Height = 6, Value = 0 };
+        public readonly TextBlock leftTriggerState = Text("等待输入", 12, false, AppPalette.Muted);
+        public readonly TextBlock rightTriggerState = Text("等待输入", 12, false, AppPalette.Muted);
         public readonly TextBlock xboxButtons = Text("—", 12);
         public readonly TextBox logBox = new() { IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 190, MaxHeight = 260, FontFamily = new("Cascadia Mono"), FontSize = 11 };
         public readonly Button connectButton = new() { Content = "连接手柄", HorizontalAlignment = HorizontalAlignment.Stretch, Height = 44 };
-        public readonly Button returnButton = new() { Content = "切回 NS2", HorizontalAlignment = HorizontalAlignment.Stretch, Height = 42 };
         public readonly List<TextBlock> MappingLabels = new();
     }
     private sealed record CachedPage(StackPanel Content, LiveControls Live, string Title, string Subtitle);
@@ -195,7 +199,6 @@ public sealed partial class MainWindow : Window
     {
         connectButton.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
         connectButton.Click += async (_, _) => await ToggleConnectionAsync();
-        returnButton.Click += async (_, _) => { await controller.StopAsync(); await ShowInfoAsync("可以回到 NS2 了", "PC 连接与虚拟手柄已断开。现在按手柄 HOME，正常连接 NS2 即可，无需重新配对。"); };
     }
     private void TryBuildPage()
     {
@@ -233,7 +236,7 @@ public sealed partial class MainWindow : Window
             pageHost.Children.Add(page);
         }
         foreach (var entry in cachedPages) entry.Value.Content.Visibility = entry.Key == selectedPage ? Visibility.Visible : Visibility.Collapsed;
-        if (selectedPage == "settings") logBox.Text = string.Join(Environment.NewLine, logLines);
+        if (selectedPage == "settings") { logBox.Text = string.Join(Environment.NewLine, logLines); RefreshAddressEditor(); }
         UpdateStatus(controller.Info); UpdateLiveInput();
         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => pageScroll.ChangeView(null, 0, null, true));
     }
@@ -248,12 +251,12 @@ public sealed partial class MainWindow : Window
         hero.Children.Add(Text("Switch 2 Pro Controller", 23, true)); hero.Children.Add(addressText);
         hero.Children.Add(controllerView); hero.Children.Add(statusText);
         var actions = new StackPanel { Spacing = 15 };
-        actions.Children.Add(Text("准备好，开始游戏", 18, true));
-        actions.Children.Add(Text("先点击连接，再长按手柄顶部的 SYNC 小键。", 13, false, AppPalette.Muted));
-        actions.Children.Add(connectButton); actions.Children.Add(returnButton);
+        actions.Children.Add(Text("无线连接", 18, true));
+        actions.Children.Add(live.connectionHint);
+        actions.Children.Add(connectButton);
         actions.Children.Add(new Border { Height = 1, Background = Brush("EEEEEE"), Margin = new(0, 5, 0, 3) });
         actions.Children.Add(Text("保留 NS2 配对", 13, true));
-        actions.Children.Add(Text("用 SYNC 进入 PC 模式；结束后按 HOME 回主机。", 12, false, AppPalette.Muted));
+        actions.Children.Add(Text("回 NS2：先断开 PC，再按 HOME。", 12, false, AppPalette.Muted));
         page.Children.Add(Columns(Card(hero, 24), Card(actions, 23), 1.8, 1));
         var battery = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 13 };
         live.batteryIcon.VerticalAlignment = VerticalAlignment.Center;
@@ -284,8 +287,8 @@ public sealed partial class MainWindow : Window
         page.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 18, Children = { trail, clear,
             Text("● 原始输入    ○ 死区处理后输出", 12, false, AppPalette.Muted) } });
         page.Children.Add(Columns(StickCard("左摇杆", leftPlot, leftValues, leftOutput, leftOffset), StickCard("右摇杆", rightPlot, rightValues, rightOutput, rightOffset), 1, 1));
-        page.Children.Add(Columns(TriggerCard("ZL · 左扳机", leftTrigger), TriggerCard("ZR · 右扳机", rightTrigger), 1, 1));
-        page.Children.Add(Text("中心偏移反映校准后、应用死区前的输入；请松开摇杆静置观察。Pro 手柄扳机为数字输入，状态只有 0 或 255。", 12, false, AppPalette.Muted));
+        page.Children.Add(Columns(TriggerCard("ZL · 左扳机", leftTrigger, live.leftTriggerState), TriggerCard("ZR · 右扳机", rightTrigger, live.rightTriggerState), 1, 1));
+        page.Children.Add(Text("中心偏移请在松开摇杆后观察；数字扳机只有按下和松开两种状态。", 12, false, AppPalette.Muted));
     }
 
     private void BuildMappingPage()
@@ -312,63 +315,90 @@ public sealed partial class MainWindow : Window
     {
         title.Text = "设置与诊断"; subtitle.Text = "保持简单，也保留需要时的排查工具。";
         var behavior = new StackPanel { Spacing = 18, Children = { Text("运行方式", 17, true) } };
-        var trayToggle = new ToggleSwitch { Header = "关闭窗口后留在托盘", OnContent = "连接继续运行", OffContent = "断开并退出", IsOn = settings.MinimizeToTray };
-        trayToggle.Toggled += (_, _) => { settings.MinimizeToTray = trayToggle.IsOn; SaveSettings(); };
+        var trayToggle = new ToggleSwitch { Header = "关闭窗口后继续在后台运行", OnContent = "缩至托盘，保持连接", OffContent = "关闭窗口即断开并退出", IsOn = settings.CloseToTray };
+        trayToggle.Toggled += (_, _) => { settings.CloseToTray = trayToggle.IsOn; SaveSettings(); };
         var auto = new ToggleSwitch { Header = "启动应用时开始等待手柄", OnContent = "等待 SYNC 广播", OffContent = "手动点击连接", IsOn = settings.AutoStartConnection };
         auto.Toggled += (_, _) => { settings.AutoStartConnection = auto.IsOn; SaveSettings(); };
         behavior.Children.Add(trayToggle); behavior.Children.Add(auto);
+        behavior.Children.Add(Text("需要保持连接时，也可使用窗口的最小化按钮。后台运行开启后，可从托盘菜单完全退出。", 12, false, AppPalette.Muted));
+        page.Children.Add(Card(behavior, 24));
+        var advanced = new StackPanel { Spacing = 14, Children = {
+            Text("应用会自动记住连接过的手柄。只有指定其他手柄或排查连接问题时才需要修改；留空可重新发现。", 12, false, AppPalette.Muted) } };
         var target = new TextBox { Header = "指定手柄蓝牙地址", Text = settings.LastControllerAddress, PlaceholderText = "留空时连接首个处于 SYNC 的 Pro 手柄" };
-        var apply = new Button { Content = "保存手柄地址" };
-        apply.Click += async (_, _) => {
+        addressEditor = target; addressDirty = false;
+        var addressStatus = Text("", 12, false, AppPalette.Muted); addressStatus.Visibility = Visibility.Collapsed;
+        var apply = new Button { Content = "保存手柄地址", IsEnabled = false };
+        target.TextChanged += (_, _) => {
+            if (updatingAddress) return;
+            addressDirty = true; apply.IsEnabled = true; addressStatus.Visibility = Visibility.Collapsed;
+        };
+        apply.Click += (_, _) => {
             var text = target.Text.Trim().ToUpperInvariant();
             if (text.Length > 0 && !System.Text.RegularExpressions.Regex.IsMatch(text, "^([0-9A-F]{2}:){5}[0-9A-F]{2}$")) {
-                await ShowInfoAsync("地址格式不正确", "请使用 AA:BB:CC:DD:EE:FF 格式，或留空以发现新手柄。"); return;
+                addressStatus.Text = "请使用 AA:BB:CC:DD:EE:FF 格式，或留空以发现新手柄。";
+                addressStatus.Foreground = Brush(AppPalette.AccentText); addressStatus.Visibility = Visibility.Visible; return;
             }
             settings.LastControllerAddress = text; SaveSettings();
-            await ShowInfoAsync("已保存", "下一次连接将使用这个手柄地址。");
+            addressDirty = false; RefreshAddressEditor(); apply.IsEnabled = false;
+            addressStatus.Text = "已保存，下次查找手柄时生效。";
+            addressStatus.Foreground = Brush(AppPalette.Muted); addressStatus.Visibility = Visibility.Visible;
         };
-        behavior.Children.Add(target); behavior.Children.Add(apply); page.Children.Add(Card(behavior, 24));
+        advanced.Children.Add(target); advanced.Children.Add(apply); advanced.Children.Add(addressStatus);
+        page.Children.Add(new Expander { Header = "高级连接选项", HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch, Content = advanced });
         var diagnostics = new StackPanel { Spacing = 14, Children = { Text("连接诊断", 17, true) } };
         var result = Text("可检查蓝牙 LE 和 ViGEmBus 驱动。", 12, false, AppPalette.Muted);
         var check = new Button { Content = "检查运行环境" };
         check.Click += async (_, _) => {
             check.IsEnabled = false;
             try {
-                var bluetooth = await ControllerService.CheckBluetoothAsync();
-                var driver = await Task.Run(VirtualGamepad.CheckDriver);
-                result.Text = bluetooth + " · " + driver;
+                var report = await PrerequisiteService.CheckAsync();
+                result.Text = string.Join("\n", report.Items.Select(item => (item.Ready ? "✓ " : "○ ") + item.Name + "：" + item.Detail));
                 AppLog.Write("info", result.Text);
             } catch (Exception error) { result.Text = error.Message; AppLog.Write("error", error.Message); }
             finally { check.IsEnabled = true; }
         };
         var logs = new Button { Content = "打开日志文件夹" };
-        logs.Click += (_, _) => { Directory.CreateDirectory(AppSettings.DataDirectory); Process.Start(new ProcessStartInfo(AppSettings.DataDirectory) { UseShellExecute = true }); };
+        logs.Click += (_, _) => {
+            try { Directory.CreateDirectory(AppSettings.DataDirectory); Process.Start(new ProcessStartInfo(AppSettings.DataDirectory) { UseShellExecute = true }); }
+            catch (Exception error) { result.Text = "未能打开日志文件夹：" + error.Message; }
+        };
         var copy = new Button { Content = "复制诊断信息" };
         copy.Click += (_, _) => {
-            var package = new DataPackage();
-            package.SetText($"{AppIdentity.DisplayName} v{AppVersion}\nWindows: {Environment.OSVersion}\n状态: {controller.Info}\n预设: {settings.Layout}\n死区: {settings.Deadzone:P0}\n\n" + string.Join(Environment.NewLine, logLines));
-            Clipboard.SetContent(package); result.Text = "诊断信息已复制";
+            try {
+                var package = new DataPackage();
+                package.SetText($"{AppIdentity.DisplayName} v{AppVersion}\nWindows: {Environment.OSVersion}\n状态: {controller.Info}\n预设: {settings.Layout}\n死区: {settings.Deadzone:P0}\n\n" + string.Join(Environment.NewLine, logLines));
+                Clipboard.SetContent(package); result.Text = "诊断信息已复制";
+            } catch (Exception error) { result.Text = "未能复制诊断信息：" + error.Message; }
         };
-        diagnostics.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Children = { check, logs, copy } });
+        var tools = new VariableSizedWrapGrid { Orientation = Orientation.Horizontal, MaximumRowsOrColumns = 3, ItemWidth = 150, ItemHeight = 44 };
+        foreach (var tool in new[] { check, logs, copy }) { tool.Margin = new(0, 0, 8, 8); tools.Children.Add(tool); }
+        diagnostics.Children.Add(tools);
         diagnostics.Children.Add(result); logBox.Text = string.Join(Environment.NewLine, logLines); diagnostics.Children.Add(logBox);
         page.Children.Add(Card(diagnostics, 24));
-        var exit = new Button { Content = "断开连接并退出应用", HorizontalAlignment = HorizontalAlignment.Left };
-        exit.Click += async (_, _) => await ExitAsync(); page.Children.Add(exit);
-        page.Children.Add(Text($"{AppIdentity.DisplayName} {AppVersion} · WinUI 3 / .NET 10\n使用 Windows 蓝牙 API 与 ViGEmBus。当前支持按键、摇杆与电量；震动、陀螺仪和耳机音频暂未接入。", 12, false, AppPalette.Muted));
+        page.Children.Add(Text("当前支持按键、摇杆、电量和充电状态。震动、体感和耳机音频暂未支持。", 12, false, AppPalette.Muted));
+    }
+
+    private void RefreshAddressEditor()
+    {
+        if (addressEditor is null || addressDirty) return;
+        updatingAddress = true;
+        try { addressEditor.Text = settings.LastControllerAddress; }
+        finally { updatingAddress = false; }
     }
 
     private async Task ToggleConnectionAsync()
     {
         try {
-            if (controller.Info.Phase is ConnectionPhase.Preparing or ConnectionPhase.Searching or ConnectionPhase.Connecting or ConnectionPhase.Connected)
+            if (controller.Info.CanStop)
                 await controller.StopAsync();
             else await BeginConnectionAsync();
         } catch (Exception error) { await ShowInfoAsync("连接操作未完成", error.Message); }
     }
     private async Task BeginConnectionAsync()
     {
-        if (exiting || controller.Info.Phase == ConnectionPhase.Stopping) return;
+        if (exiting || !controller.Info.CanStart) return;
         var report = await PrerequisiteService.CheckAsync();
+        if (exiting || !controller.Info.CanStart) return;
         if (!report.Ready) {
             NativeMethods.ShowExisting(WinRT.Interop.WindowNative.GetWindowHandle(this)); Activate();
             SelectPage("setup");
@@ -391,20 +421,30 @@ public sealed partial class MainWindow : Window
     private void UpdateStatus(ConnectionInfo info)
     {
         tray?.Update(info.Phase);
+        if (selectedPage == "settings") RefreshAddressEditor();
         connectionGuide?.Update(info, controller.Input);
         if (pageFailed || !cachedPages.ContainsKey(selectedPage)) return;
         UpdateMappingLabels();
-        badge.Text = info.Phase switch { ConnectionPhase.Connected => "● 已连接", ConnectionPhase.Searching => "● 等待 SYNC", ConnectionPhase.Connecting => "● 连接中", ConnectionPhase.Error => "● 需要处理", _ => "○ 未连接" };
-        badge.Foreground = Brush(info.Phase == ConnectionPhase.Connected ? AppPalette.AccentText : info.Phase == ConnectionPhase.Error ? "AC6635" : AppPalette.Muted);
+        badge.Text = info.Phase switch { ConnectionPhase.Connected => "● 已连接", ConnectionPhase.WaitingForInput => "● 等待输入", ConnectionPhase.Searching => "● 等待 SYNC", ConnectionPhase.Connecting => "● 连接中", ConnectionPhase.Preparing => "● 正在准备", ConnectionPhase.Stopping => "● 正在断开", ConnectionPhase.Error => "● 连接未完成", _ => "○ 未连接" };
+        badge.Foreground = Brush(info.Phase == ConnectionPhase.Connected ? AppPalette.AccentText : info.Phase is ConnectionPhase.Error or ConnectionPhase.WaitingForInput ? "AC6635" : AppPalette.Muted);
         statusText.Text = info.Message;
         statusText.Visibility = string.IsNullOrWhiteSpace(info.Message) ? Visibility.Collapsed : Visibility.Visible;
         addressText.Text = info.Address is null ? "蓝牙 LE · 保留 NS2 配对" : info.Address + " · 蓝牙 LE";
-        connectButton.Content = info.Phase switch { ConnectionPhase.Connected => "断开 PC 连接", ConnectionPhase.Preparing or ConnectionPhase.Searching or ConnectionPhase.Connecting => "取消连接", ConnectionPhase.Stopping => "正在断开…", _ => "连接手柄" };
-        connectButton.IsEnabled = info.Phase != ConnectionPhase.Stopping;
-        returnButton.IsEnabled = info.Phase is ConnectionPhase.Connected or ConnectionPhase.Connecting or ConnectionPhase.Searching;
+        connectButton.Content = info.ActionText;
+        connectButton.IsEnabled = info.CanStart || info.CanStop;
+        live.connectionHint.Text = info.Phase switch {
+            ConnectionPhase.Connected => "连接已建立，可直接开始游戏。",
+            ConnectionPhase.WaitingForInput => "蓝牙已连接，正在等待手柄输入。",
+            ConnectionPhase.Searching => "长按顶部 SYNC，直到手柄指示灯循环闪烁。",
+            ConnectionPhase.Preparing or ConnectionPhase.Connecting => "正在连接手柄，请稍候。",
+            ConnectionPhase.Stopping => "正在释放连接，请稍候。",
+            ConnectionPhase.Error => "点击重试连接，再长按手柄顶部 SYNC。",
+            _ => "先点击连接，再长按手柄顶部的 SYNC 小键。"
+        };
         hzText.Text = info.Phase == ConnectionPhase.Connected ? $"{info.Hertz:F0} Hz" : "—";
         var outputState = info.Phase switch {
             ConnectionPhase.Connected => "游戏输出已就绪",
+            ConnectionPhase.WaitingForInput => "游戏输出等待手柄输入",
             ConnectionPhase.Preparing or ConnectionPhase.Searching or ConnectionPhase.Connecting => "游戏输出等待连接",
             ConnectionPhase.Stopping => "正在释放游戏输出",
             ConnectionPhase.Error => "游戏输出未就绪",
@@ -415,6 +455,11 @@ public sealed partial class MainWindow : Window
     }
     private void UpdateLiveInput()
     {
+        bool hasInput = controller.Input is not null;
+        if (!hasInput && hadLiveInput) {
+            foreach (var cached in cachedPages.Values) { cached.Live.leftPlot.Clear(); cached.Live.rightPlot.Clear(); }
+        }
+        hadLiveInput = hasInput;
         if (!settings.HasCompletedFirstConnection && controller.Input is not null) {
             settings.HasCompletedFirstConnection = true; SaveSettings();
         }
@@ -427,16 +472,24 @@ public sealed partial class MainWindow : Window
         live.batteryState.Text = state?.IsCharging == true ? "正在充电" : "已接电源，未充电";
         live.batteryState.Visibility = state is { IsCharging: true } or { HasExternalPower: true } ? Visibility.Visible : Visibility.Collapsed;
         inputText.Text = state is null ? "尚未接收输入 · 连接后自动开始检测" : $"● 正在接收 · {controller.Info.Hertz:F1} Hz · {controller.Info.Reports:N0} 份报告";
-        var left = state?.UnfilteredLeft ?? new(0, 0); var right = state?.UnfilteredRight ?? new(0, 0);
-        var leftFiltered = state?.Left ?? new(0, 0); var rightFiltered = state?.Right ?? new(0, 0);
-        leftPlot.Update(left, leftFiltered, settings.Deadzone); rightPlot.Update(right, rightFiltered, settings.Deadzone);
+        leftPlot.Update(state?.UnfilteredLeft, state?.Left, settings.Deadzone); rightPlot.Update(state?.UnfilteredRight, state?.Right, settings.Deadzone);
+        live.leftTriggerState.Text = state is null ? "等待输入" : state.Xbox.LeftTrigger > 0 ? "已按下" : "未按下";
+        live.rightTriggerState.Text = state is null ? "等待输入" : state.Xbox.RightTrigger > 0 ? "已按下" : "未按下";
+        leftTrigger.Value = state?.Xbox.LeftTrigger ?? 0; rightTrigger.Value = state?.Xbox.RightTrigger ?? 0;
+        xboxButtons.Text = state is null ? "等待输入" : XboxLabels(state.Xbox);
+        if (state is null) {
+            leftValues.Text = rightValues.Text = "X  —    Y  —";
+            leftOutput.Text = rightOutput.Text = "输出  — / —";
+            leftOffset.Text = rightOffset.Text = "中心偏移  —";
+            return;
+        }
+        var left = state.UnfilteredLeft; var right = state.UnfilteredRight;
+        var leftFiltered = state.Left; var rightFiltered = state.Right;
         leftValues.Text = $"X  {left.X:+0.000;-0.000;+0.000}    Y  {left.Y:+0.000;-0.000;+0.000}";
         rightValues.Text = $"X  {right.X:+0.000;-0.000;+0.000}    Y  {right.Y:+0.000;-0.000;+0.000}";
         leftOutput.Text = $"输出  {leftFiltered.X:F3} / {leftFiltered.Y:F3}"; rightOutput.Text = $"输出  {rightFiltered.X:F3} / {rightFiltered.Y:F3}";
         leftOffset.Text = $"中心偏移  {Math.Sqrt(left.X * left.X + left.Y * left.Y) * 100:F1}%";
         rightOffset.Text = $"中心偏移  {Math.Sqrt(right.X * right.X + right.Y * right.Y) * 100:F1}%";
-        leftTrigger.Value = state?.Xbox.LeftTrigger ?? 0; rightTrigger.Value = state?.Xbox.RightTrigger ?? 0;
-        xboxButtons.Text = state is null ? "—" : XboxLabels(state.Xbox);
     }
     private static string XboxLabels(XboxReport input)
     {
@@ -454,7 +507,13 @@ public sealed partial class MainWindow : Window
     private async Task ExitAsync()
     {
         if (exiting) return; exiting = true;
-        await controller.StopAsync(); timer.Stop(); tray?.Dispose(); exitAllowed = true; Close();
+        try { await controller.StopAsync(); timer.Stop(); tray?.Dispose(); exitAllowed = true; Close(); }
+        catch (Exception error) {
+            exiting = exitAllowed = false;
+            NativeMethods.ShowExisting(WinRT.Interop.WindowNative.GetWindowHandle(this)); Activate();
+            AppLog.Write("error", "退出未完成：" + error);
+            await ShowInfoAsync("退出未完成", error.Message);
+        }
     }
 
     private Border LayoutCard(ButtonLayout layout)
@@ -552,7 +611,7 @@ public sealed partial class MainWindow : Window
     }
     private static Border Metric(string label, FrameworkElement value) => Card(new StackPanel { Spacing = 10, Children = { Text(label, 12, false, AppPalette.Muted), value } }, 20);
     private static Border StickCard(string label, StickPlot plot, TextBlock values, TextBlock output, TextBlock offset) => Card(new StackPanel { Spacing = 8, Children = { Text(label, 15, true), plot, values, output, offset } }, 20);
-    private static Border TriggerCard(string label, ProgressBar bar) => Card(new StackPanel { Spacing = 12, Children = { Text(label, 13, true), bar } }, 20);
+    private static Border TriggerCard(string label, ProgressBar bar, TextBlock state) => Card(new StackPanel { Spacing = 12, Children = { Text(label, 13, true), bar, state } }, 20);
     private static Grid Columns(FrameworkElement first, FrameworkElement second, double a, double b, FrameworkElement? third = null)
     {
         var grid = new Grid { ColumnSpacing = 18 };

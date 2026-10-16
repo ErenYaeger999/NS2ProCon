@@ -72,7 +72,7 @@ function InitializeSetup: Boolean;
 begin
   Result := not CheckForMutexes('Local\NS2Pro.NativeApp');
   if not Result then
-    SuppressibleMsgBox('请先在{#AppDisplayName}左下角点击「退出应用」，再运行安装包。关闭窗口可能只会缩到托盘。', mbInformation, MB_OK, IDOK);
+    SuppressibleMsgBox('请先退出{#AppDisplayName}，再运行安装包。如果关闭窗口后仍在后台运行，请从右下角托盘菜单选择「断开并退出」。', mbInformation, MB_OK, IDOK);
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;

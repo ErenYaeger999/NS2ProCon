@@ -64,6 +64,7 @@ internal sealed class TrayIcon : IDisposable
         phase = next;
         string state = phase switch {
             ConnectionPhase.Connected => "已连接到 PC",
+            ConnectionPhase.WaitingForInput => "蓝牙已连接 · 等待手柄输入",
             ConnectionPhase.Searching => "等待 SYNC · 请勿按 HOME",
             ConnectionPhase.Preparing or ConnectionPhase.Connecting => "正在连接 · 请勿按 HOME",
             ConnectionPhase.Stopping => "正在断开",
@@ -90,8 +91,9 @@ internal sealed class TrayIcon : IDisposable
                 uint command;
                 try {
                     AppendMenu(menu, 0, 1, "打开 " + AppIdentity.DisplayName);
-                    bool active = phase is ConnectionPhase.Preparing or ConnectionPhase.Searching or ConnectionPhase.Connecting or ConnectionPhase.Connected;
-                    string label = phase == ConnectionPhase.Connected ? "断开 PC 连接" : active ? "取消连接" : phase == ConnectionPhase.Stopping ? "正在断开…" : "连接手柄（长按 SYNC）";
+                    var state = new ConnectionInfo(phase, "");
+                    bool active = state.CanStop;
+                    string label = phase == ConnectionPhase.Idle ? "连接手柄（长按 SYNC）" : state.ActionText;
                     AppendMenu(menu, AppSettings.IsPreview || phase == ConnectionPhase.Stopping ? 1u : 0u, active ? 4u : 3u, label);
                     AppendMenu(menu, 0x800, 0, "");
                     AppendMenu(menu, 0, 2, "断开并退出");

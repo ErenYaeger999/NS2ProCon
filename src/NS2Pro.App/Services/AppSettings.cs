@@ -12,7 +12,7 @@ public sealed class AppSettings
     public ButtonLayout Layout { get; set; } = ButtonLayout.Labels;
     public double Deadzone { get; set; } = .06;
     public string Theme { get; set; } = "Light";
-    public bool MinimizeToTray { get; set; } = true;
+    public bool CloseToTray { get; set; }
     public bool AutoStartConnection { get; set; }
     public string LastControllerAddress { get; set; } = "";
     public bool HasCompletedFirstConnection { get; set; }

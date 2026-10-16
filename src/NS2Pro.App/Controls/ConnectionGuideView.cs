@@ -22,7 +22,7 @@ public sealed class ConnectionGuideView : UserControl
     private readonly Button driver = new() { Content = "安装手柄驱动", Visibility = Visibility.Collapsed };
     private readonly Button start = new() { Content = "开始连接", Height = 44, IsEnabled = false };
     private readonly Button stop = new() { Content = "取消连接", Height = 44, Visibility = Visibility.Collapsed };
-    private readonly Button test = new() { Content = "打开手柄测试", IsEnabled = false };
+    private readonly Button test = new() { Content = "打开手柄测试" };
     private bool checking, loaded;
     private DateTimeOffset searchStarted;
     private ConnectionPhase previousPhase = (ConnectionPhase)(-1);
@@ -116,16 +116,19 @@ public sealed class ConnectionGuideView : UserControl
 
     public void Update(ConnectionInfo info, ControllerInput? input)
     {
-        bool active = info.Phase is ConnectionPhase.Preparing or ConnectionPhase.Searching or ConnectionPhase.Connecting or ConnectionPhase.Connected or ConnectionPhase.Stopping;
+        bool active = info.IsActive;
         start.IsEnabled = !checking && report?.Ready == true && !active;
-        start.Content = info.Phase == ConnectionPhase.Connected ? "已连接" : "开始连接";
+        start.Visibility = active ? Visibility.Collapsed : Visibility.Visible;
+        start.Content = info.Phase == ConnectionPhase.Error ? "重试连接" : "开始连接";
         stop.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
         stop.IsEnabled = info.Phase != ConnectionPhase.Stopping;
-        stop.Content = info.Phase == ConnectionPhase.Connected ? "断开 PC 连接" : "取消连接";
-        test.IsEnabled = input is not null;
+        stop.Content = info.ActionText;
         connectionStatus.Text = info.Phase == ConnectionPhase.Idle ? "环境就绪后，点击开始连接。" : info.Message;
-        confirmation.Text = input is not null ? "✓ 已收到真实输入，首次连接完成。可以开始游戏，或进入测试页检查按键。" : "收到手柄输入后，这一步会自动完成。";
-        if (info.Phase == ConnectionPhase.Searching && previousPhase != ConnectionPhase.Searching) searchStarted = DateTimeOffset.Now;
+        confirmation.Text = input is not null ? "✓ 已收到真实输入，可以开始游戏或检查按键。" : settings.HasCompletedFirstConnection ? "✓ 已完成过首次连接。可重新连接手柄，或打开测试页。" : "收到手柄输入后，这一步会自动完成。";
+        if (info.Phase == ConnectionPhase.Searching && previousPhase != ConnectionPhase.Searching) {
+            searchStarted = DateTimeOffset.Now;
+            scanHelp.Text = "请保持手柄靠近电脑。无需在 Windows 蓝牙页面里手动配对。";
+        }
         if (info.Phase == ConnectionPhase.Searching && DateTimeOffset.Now - searchStarted > TimeSpan.FromSeconds(25))
             scanHelp.Text = "仍在等待 SYNC。确认指示灯循环闪烁；更换手柄时可展开下方提示，改为发现新手柄。";
         previousPhase = info.Phase;

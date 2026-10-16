@@ -3,4 +3,5 @@
   <ItemGroup><ProjectReference Include="..\..\src\NS2Pro.Core\NS2Pro.Core.csproj" /></ItemGroup>
   <ItemGroup><Compile Include="..\..\src\NS2Pro.App\Services\AppSettings.cs" Link="AppSettings.cs" /></ItemGroup>
   <ItemGroup><Compile Include="..\..\src\NS2Pro.App\Services\SingleInstance.cs" Link="SingleInstance.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="..\..\src\NS2Pro.App\Services\ConnectionInfo.cs" Link="ConnectionInfo.cs" /></ItemGroup>
 </Project>

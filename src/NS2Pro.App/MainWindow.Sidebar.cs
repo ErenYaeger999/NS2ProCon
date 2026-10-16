@@ -2,7 +2,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
-using NS2Pro.App.Services;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.System;
 
@@ -17,16 +16,12 @@ public sealed partial class MainWindow
         // Footer actions use the same native rows as the page navigation, including focus and hover.
         // SelectsOnInvoked=false keeps the current page and its live controls mounted.
         var contact = SidebarAction("联系与反馈", "\uE715");
-        var quit = SidebarAction("退出应用", "\uE8AC");
         ToolTipService.SetToolTip(contact, "反馈问题、提出建议，或联系作者");
-        ToolTipService.SetToolTip(quit, "断开 PC 连接并退出应用");
-        AutomationProperties.SetHelpText(quit, "结束手柄的 PC 连接并完全退出；关闭窗口可继续留在托盘。");
         FlyoutBase.SetAttachedFlyout(contact, CreateContactFlyout());
 
         // WinUI places PaneFooter before FooterMenuItems; metadata must be the last footer item.
         navigation.PaneFooter = new Border { Height = 1, Margin = new(20, 12, 20, 8), Background = Brush(AppPalette.Border) };
         navigation.FooterMenuItems.Add(contact);
-        navigation.FooterMenuItems.Add(quit);
         var version = Text($"v{AppVersion}", 11, false, AppPalette.Muted);
         version.HorizontalAlignment = HorizontalAlignment.Right;
         var metadata = new Grid { Margin = new(20, 12, 20, 18) };
@@ -40,17 +35,8 @@ public sealed partial class MainWindow
         AutomationProperties.SetName(metadataItem, $"{AppIdentity.DisplayName}，版本 {AppVersion}");
         navigation.FooterMenuItems.Add(metadataItem);
 
-        navigation.ItemInvoked += async (_, args) => {
+        navigation.ItemInvoked += (_, args) => {
             if (ReferenceEquals(args.InvokedItemContainer, contact)) FlyoutBase.ShowAttachedFlyout(contact);
-            else if (ReferenceEquals(args.InvokedItemContainer, quit)) {
-                quit.IsEnabled = false;
-                try { await ExitAsync(); }
-                catch (Exception error) {
-                    exiting = false; quit.IsEnabled = true;
-                    AppLog.Write("error", "退出未完成：" + error);
-                    await ShowInfoAsync("退出未完成", error.Message);
-                }
-            }
         };
     }
 

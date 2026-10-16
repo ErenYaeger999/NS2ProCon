@@ -32,16 +32,24 @@ public sealed class StickPlot : UserControl
         outputDot = new Ellipse { Width = 16, Height = 16, Stroke = new SolidColorBrush(ColorHelper.FromArgb(255, 41, 41, 41)), StrokeThickness = 2 };
         canvas.Children.Add(outputDot); canvas.Children.Add(rawDot);
         Content = new Viewbox { Child = canvas, Stretch = Stretch.Uniform, MaxHeight = 220 };
-        Update(new(0, 0), new(0, 0), .06);
+        Update(null, null, .06);
     }
     public void Clear() { points.Clear(); trail.Points.Clear(); lastPoint = null; }
-    public void Update(Stick raw, Stick output, double deadzone)
+    public void Update(Stick? rawInput, Stick? outputInput, double deadzone)
     {
         double radius = 92;
-        Canvas.SetLeft(rawDot, 110 + raw.X * radius - 5.5); Canvas.SetTop(rawDot, 110 - raw.Y * radius - 5.5);
-        Canvas.SetLeft(outputDot, 110 + output.X * radius - 8); Canvas.SetTop(outputDot, 110 - output.Y * radius - 8);
         deadzoneCircle.Width = deadzoneCircle.Height = radius * deadzone * 2;
         Canvas.SetLeft(deadzoneCircle, 110 - radius * deadzone); Canvas.SetTop(deadzoneCircle, 110 - radius * deadzone);
+        bool available = rawInput is not null && outputInput is not null;
+        rawDot.Visibility = outputDot.Visibility = available ? Visibility.Visible : Visibility.Collapsed;
+        if (!available) {
+            if (lastPoint is not null || points.Count > 0) Clear();
+            trail.Visibility = Visibility.Collapsed;
+            return;
+        }
+        var raw = rawInput!.Value; var output = outputInput!.Value;
+        Canvas.SetLeft(rawDot, 110 + raw.X * radius - 5.5); Canvas.SetTop(rawDot, 110 - raw.Y * radius - 5.5);
+        Canvas.SetLeft(outputDot, 110 + output.X * radius - 8); Canvas.SetTop(outputDot, 110 - output.Y * radius - 8);
         var point = new Point(110 + raw.X * radius, 110 - raw.Y * radius);
         if (ShowTrail && point != lastPoint) {
             points.Enqueue(point); lastPoint = point;
