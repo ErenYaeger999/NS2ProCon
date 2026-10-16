@@ -13,7 +13,7 @@ using Windows.Graphics;
 
 namespace NS2Pro.App;
 
-public sealed class MainWindow : Window
+public sealed partial class MainWindow : Window
 {
     private static readonly string AppVersion = typeof(MainWindow).Assembly.GetName().Version!.ToString(3);
     private readonly AppSettings settings = AppSettings.Load();
@@ -65,11 +65,14 @@ public sealed class MainWindow : Window
     public MainWindow()
     {
         controller = new(settings);
-        Title = "NS2 Pro";
+        Title = App.WindowTitle;
         ExtendsContentIntoTitleBar = true;
-        SystemBackdrop = new MicaBackdrop();
-        AppWindow.Resize(new SizeInt32(1200, 870));
+        if (Microsoft.UI.Composition.SystemBackdrops.MicaController.IsSupported()) SystemBackdrop = new MicaBackdrop();
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        double scale = Math.Max(1, NativeMethods.GetDpiForWindow(hwnd) / 96.0);
+        var workArea = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
+        AppWindow.Resize(new SizeInt32(Math.Min((int)(1200 * scale), workArea.Width - (int)(40 * scale)), Math.Min((int)(870 * scale), workArea.Height - (int)(40 * scale))));
+        AppWindow.Move(new PointInt32(workArea.X + (workArea.Width - AppWindow.Size.Width) / 2, workArea.Y + (workArea.Height - AppWindow.Size.Height) / 2));
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "App.ico"));
         AppWindow.TitleBar.ButtonBackgroundColor = Colors.Transparent;
         AppWindow.TitleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
@@ -90,8 +93,9 @@ public sealed class MainWindow : Window
         navigation.PaneHeader = Brand();
         var quit = new Button { Content = "退出应用", FontSize = 11, Padding = new(10, 5, 10, 5) };
         quit.Click += async (_, _) => await ExitAsync();
-        navigation.PaneFooter = new StackPanel { Margin = new(20, 0, 0, 20), Spacing = 10, Children = { quit, Text($"v{AppVersion}", 11, false, "8A969B") } };
+        navigation.PaneFooter = new StackPanel { Margin = new(20, 0, 0, 20), Spacing = 10, Children = { ContactEntry(), quit, Text($"v{AppVersion}", 11, false, "8A969B") } };
         AddNavigation("连接总览", "overview", "\uE701");
+        AddNavigation("连接指南", "setup", "\uE897");
         AddNavigation("手柄测试", "test", "\uE7FC");
         AddNavigation("按键映射", "mapping", "\uE8AB");
         AddNavigation("设置与诊断", "settings", "\uE713");
@@ -126,9 +130,9 @@ public sealed class MainWindow : Window
         root.Loaded += (_, _) => {
             if (initialized) return;
             initialized = true;
-            navigation.SelectedItem = navigation.MenuItems[0];
+            SelectPage(settings.HasCompletedFirstConnection ? "overview" : "setup");
             AppLog.Write("info", $"NS2 Pro v{AppVersion} 已启动 · WinUI 3");
-            if (settings.AutoStartConnection) _ = controller.StartAsync();
+            if (settings.AutoStartConnection && settings.HasCompletedFirstConnection) _ = controller.StartAsync();
         };
     }
 
@@ -202,6 +206,7 @@ public sealed class MainWindow : Window
             page = new StackPanel { Spacing = 22 }; live = new LiveControls(); WireLiveControls();
             if (selectedPage is "overview" or "test") controllerView.Height = selectedPage == "test" ? 380 : 270;
             switch (selectedPage) {
+                case "setup": BuildSetupPage(); break;
                 case "test": BuildTestPage(); break;
                 case "mapping": BuildMappingPage(); break;
                 case "settings": BuildSettingsPage(); break;
@@ -250,7 +255,7 @@ public sealed class MainWindow : Window
     {
         title.Text = "手柄测试"; subtitle.Text = "每一次按下，都看得见。";
         var instructions = new StackPanel { Spacing = 14, Children = { Text("输入状态", 14, true), badge, statusText, connectButton,
-            Text("需由本应用连接手柄。旧版控制台仍运行时，请先在原窗口按 Ctrl+C 结束连接，再在此连接并长按 SYNC。", 12, false, "78858B"),
+            Text("先在本应用连接手柄，再按键或拨动摇杆，检测会自动开始。其他连接工具应先断开这只手柄。", 12, false, "78858B"),
             Text("Xbox 游戏输出", 12, true), xboxButtons } };
         var model = new StackPanel { Spacing = 8, Children = { controllerView,
             Text("按键亮起 · 摇杆随输入移动", 11, false, "78858B"), inputText } };
@@ -341,11 +346,20 @@ public sealed class MainWindow : Window
         try {
             if (controller.Info.Phase is ConnectionPhase.Preparing or ConnectionPhase.Searching or ConnectionPhase.Connecting or ConnectionPhase.Connected)
                 await controller.StopAsync();
-            else await controller.StartAsync();
+            else {
+                var report = await PrerequisiteService.CheckAsync();
+                if (!report.Ready) {
+                    SelectPage("setup");
+                    if (connectionGuide is not null) await connectionGuide.RefreshEnvironmentAsync();
+                    return;
+                }
+                await controller.StartAsync();
+            }
         } catch (Exception error) { await ShowInfoAsync("连接操作未完成", error.Message); }
     }
     private void UpdateStatus(ConnectionInfo info)
     {
+        connectionGuide?.Update(info, controller.Input);
         if (pageFailed || !cachedPages.ContainsKey(selectedPage)) return;
         UpdateMappingLabels();
         badge.Text = info.Phase switch { ConnectionPhase.Connected => "● 已连接", ConnectionPhase.Searching => "● 等待 SYNC", ConnectionPhase.Connecting => "● 连接中", ConnectionPhase.Error => "● 需要处理", _ => "○ 未连接" };
@@ -368,6 +382,10 @@ public sealed class MainWindow : Window
     }
     private void UpdateLiveInput()
     {
+        if (!settings.HasCompletedFirstConnection && controller.Input is not null) {
+            settings.HasCompletedFirstConnection = true; SaveSettings();
+        }
+        connectionGuide?.Update(controller.Info, controller.Input);
         if (pageFailed || !cachedPages.ContainsKey(selectedPage)) return;
         var state = controller.Input;
         if (selectedPage is "overview" or "test") controllerView.Update(state);
@@ -506,6 +524,24 @@ public sealed class MainWindow : Window
         grid.ColumnDefinitions.Add(new() { Width = new(a, GridUnitType.Star) }); grid.ColumnDefinitions.Add(new() { Width = new(b, GridUnitType.Star) });
         grid.Children.Add(first); Grid.SetColumn(second, 1); grid.Children.Add(second);
         if (third is not null) { grid.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); Grid.SetColumn(third, 2); grid.Children.Add(third); }
+        bool? stacked = null;
+        grid.SizeChanged += (_, args) => {
+            bool narrow = args.NewSize.Width < 680;
+            if (stacked == narrow) return;
+            stacked = narrow;
+            grid.ColumnDefinitions.Clear(); grid.RowDefinitions.Clear();
+            var children = third is null ? new[] { first, second } : new[] { first, second, third };
+            if (narrow) {
+                grid.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); grid.RowSpacing = 18;
+                for (int i = 0; i < children.Length; i++) {
+                    grid.RowDefinitions.Add(new() { Height = GridLength.Auto }); Grid.SetColumn(children[i], 0); Grid.SetRow(children[i], i);
+                }
+            } else {
+                grid.RowSpacing = 0;
+                foreach (double width in third is null ? new[] { a, b } : new[] { a, b, 1.0 }) grid.ColumnDefinitions.Add(new() { Width = new(width, GridUnitType.Star) });
+                for (int i = 0; i < children.Length; i++) { Grid.SetColumn(children[i], i); Grid.SetRow(children[i], 0); }
+            }
+        };
         return grid;
     }
     private static Border Card(UIElement child, double padding) => new() { Background = Brush("FFFFFF"), BorderBrush = Brush("E3E9E9"), BorderThickness = new(1), CornerRadius = new(16), Padding = new(padding), Child = child };

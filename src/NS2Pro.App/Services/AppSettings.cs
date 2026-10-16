@@ -6,18 +6,33 @@ namespace NS2Pro.App.Services;
 public sealed class AppSettings
 {
     private static readonly object FileGate = new();
-    public static string DataDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NS2Pro");
+    public static bool IsPreview => Environment.GetCommandLineArgs().Contains("--preview-onboarding", StringComparer.Ordinal);
+    public static string DataDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NS2Pro", IsPreview ? "Preview" : "");
     public static string FilePath => Path.Combine(DataDirectory, "settings.json");
     public ButtonLayout Layout { get; set; } = ButtonLayout.Labels;
     public double Deadzone { get; set; } = .06;
     public string Theme { get; set; } = "Light";
     public bool MinimizeToTray { get; set; } = true;
     public bool AutoStartConnection { get; set; }
-    public string LastControllerAddress { get; set; } = "BC:89:A6:5C:7A:32";
+    public string LastControllerAddress { get; set; } = "";
+    public bool HasCompletedFirstConnection { get; set; }
+
+    public void Normalize()
+    {
+        if (!Enum.IsDefined(Layout)) Layout = ButtonLayout.Labels;
+        Deadzone = double.IsFinite(Deadzone) ? Math.Clamp(Deadzone, 0, .3) : .06;
+        LastControllerAddress = (LastControllerAddress ?? "").Trim().ToUpperInvariant();
+        if (LastControllerAddress.Length > 0 && !System.Text.RegularExpressions.Regex.IsMatch(LastControllerAddress, "^([0-9A-F]{2}:){5}[0-9A-F]{2}$"))
+            LastControllerAddress = "";
+    }
 
     public static AppSettings Load()
     {
-        try { return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath)) ?? new(); }
+        try {
+            var settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath)) ?? new();
+            settings.Normalize();
+            return settings;
+        }
         catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { return new(); }
     }
     public void Save()
@@ -45,7 +60,7 @@ public static class AppLog
                 if (File.Exists(FilePath) && new FileInfo(FilePath).Length > 2_000_000)
                     File.Move(FilePath, FilePath + ".previous", true);
                 File.AppendAllText(FilePath, line + Environment.NewLine);
-            } catch (IOException) { }
+            } catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
         }
         LineWritten?.Invoke(line);
     }

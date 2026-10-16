@@ -16,6 +16,7 @@
     <EnableMsixTooling>false</EnableMsixTooling>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="..\..\installer\prerequisites.json" LogicalName="NS2Pro.App.Prerequisites.json" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
     <ProjectReference Include="..\NS2Pro.Core\NS2Pro.Core.csproj" />

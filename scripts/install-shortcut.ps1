@@ -11,7 +11,7 @@ $ns2Shortcut = $ns2Shell.CreateShortcut($ns2ShortcutPath)
 $ns2Shortcut.TargetPath = $ns2Executable
 $ns2Shortcut.Arguments = ''
 $ns2Shortcut.WorkingDirectory = Split-Path -Parent $ns2Executable
-$ns2Shortcut.IconLocation = (Join-Path $ns2Root 'src\NS2Pro.App\Assets\App.ico') + ',0'
+$ns2Shortcut.IconLocation = (Join-Path (Split-Path -Parent $ns2Executable) 'Assets\App.ico') + ',0'
 $ns2Shortcut.Description = 'NS2 Pro · 原生连接、手柄测试与映射预设'
 $ns2Shortcut.Save()
 Write-Output $ns2ShortcutPath

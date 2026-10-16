@@ -38,8 +38,16 @@ public sealed class VirtualGamepad : IDisposable
     }
     public static string CheckDriver()
     {
-        try { using var pad = new VirtualGamepad(); return "ViGEmBus 已就绪"; }
+        try { EnsureDriverAvailable(); return "ViGEmBus 已就绪"; }
         catch (Exception error) { return error.Message; }
+    }
+    public static void EnsureDriverAvailable()
+    {
+        // Probe the bus without adding an Xbox device to a running game.
+        var client = vigem_alloc();
+        if (client == IntPtr.Zero) throw new InvalidOperationException("无法初始化虚拟手柄客户端");
+        try { Check(vigem_connect(client)); }
+        finally { vigem_disconnect(client); vigem_free(client); }
     }
     private static void Check(uint code)
     {

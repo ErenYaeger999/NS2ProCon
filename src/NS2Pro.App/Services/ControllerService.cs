@@ -4,6 +4,7 @@ using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.Advertisement;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
 using Windows.Devices.Radios;
+using Windows.Foundation.Metadata;
 using Windows.Storage.Streams;
 
 namespace NS2Pro.App.Services;
@@ -34,6 +35,7 @@ public sealed class ControllerService(AppSettings settings)
 
     public async Task StartAsync()
     {
+        if (AppSettings.IsPreview) { Publish(ConnectionPhase.Error, "当前是引导预览，不连接真实设备。正常启动应用即可连接。"); return; }
         await lifecycle.WaitAsync();
         try {
             if (running is { IsCompleted: false }) return;
@@ -62,7 +64,9 @@ public sealed class ControllerService(AppSettings settings)
     {
         var adapter = await BluetoothAdapter.GetDefaultAsync();
         if (adapter is null || !adapter.IsLowEnergySupported) throw new InvalidOperationException("电脑没有可用的蓝牙 LE 适配器");
+        if (!adapter.IsCentralRoleSupported) throw new InvalidOperationException("此蓝牙适配器不支持 LE 中央角色，请更新蓝牙驱动或使用兼容的 USB 蓝牙适配器");
         var radio = await adapter.GetRadioAsync();
+        if (radio is null) throw new InvalidOperationException("无法读取蓝牙状态，请在 Windows 设置中检查蓝牙适配器");
         if (radio.State != RadioState.On && enable) {
             if (await Radio.RequestAccessAsync() != RadioAccessStatus.Allowed ||
                 await radio.SetStateAsync(RadioState.On) != RadioAccessStatus.Allowed)
@@ -78,7 +82,7 @@ public sealed class ControllerService(AppSettings settings)
             Publish(ConnectionPhase.Preparing, "正在检查蓝牙与虚拟手柄…");
             AppLog.Write("info", await CheckBluetoothAsync(true));
             // Verify the installed driver without retaining a virtual device while scanning.
-            using (var check = new VirtualGamepad()) { }
+            VirtualGamepad.EnsureDriverAvailable();
             while (!token.IsCancellationRequested) {
                 Publish(ConnectionPhase.Searching, "长按手柄顶部 SYNC，直到指示灯循环闪烁");
                 var address = await WaitForControllerAsync(token);
@@ -125,7 +129,7 @@ public sealed class ControllerService(AppSettings settings)
             ?? throw new InvalidOperationException("无法打开蓝牙手柄，请再长按一次 SYNC");
         using var session = await GattSession.FromDeviceIdAsync(device.BluetoothDeviceId);
         if (session is not null) session.MaintainConnection = true;
-        using var preference = device.RequestPreferredConnectionParameters(BluetoothLEPreferredConnectionParameters.ThroughputOptimized);
+        using var preference = TryRequestThroughput(device);
         var discovery = await device.GetGattServicesForUuidAsync(ServiceUuid, BluetoothCacheMode.Uncached).AsTask().WaitAsync(TimeSpan.FromSeconds(20), token);
         if (discovery.Status != GattCommunicationStatus.Success || discovery.Services.Count == 0)
             throw new InvalidOperationException("未能读取手柄服务，请确认它处于 SYNC 模式");
@@ -175,7 +179,8 @@ public sealed class ControllerService(AppSettings settings)
             var subscribed = await reportCharacteristic.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify).AsTask().WaitAsync(TimeSpan.FromSeconds(10), token);
             if (subscribed != GattCommunicationStatus.Success) throw new InvalidOperationException("无法订阅手柄输入");
             settings.LastControllerAddress = mac;
-            settings.Save();
+            try { settings.Save(); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { AppLog.Write("warn", "手柄已连接，但无法记住地址：" + error.Message); }
             AppLog.Write("info", "蓝牙与 Xbox 360 输出已连接，未写入配对资料");
             while (!token.IsCancellationRequested && !disconnected.Task.IsCompleted) {
                 await Task.Delay(250, token);
@@ -194,6 +199,14 @@ public sealed class ControllerService(AppSettings settings)
             AppLog.Write("info", "蓝牙连接已释放");
             AppLog.Write("info", $"本次输入：{count} 份 · {count/Math.Max(clock.Elapsed.TotalSeconds,.001):F1} Hz · R={seenRight:X2} L={seenLeft:X2} Extra={seenExtra:X2} · 摇杆最大行程 {leftTravel:P0}/{rightTravel:P0}");
         }
+    }
+
+    private static IDisposable? TryRequestThroughput(BluetoothLEDevice device)
+    {
+        // This API was introduced in Windows 11. Windows 10 uses adapter defaults.
+        if (!ApiInformation.IsMethodPresent("Windows.Devices.Bluetooth.BluetoothLEDevice", "RequestPreferredConnectionParameters")) return null;
+        try { return device.RequestPreferredConnectionParameters(BluetoothLEPreferredConnectionParameters.ThroughputOptimized); }
+        catch (Exception error) { AppLog.Write("warn", "蓝牙适配器使用默认连接参数：" + error.Message); return null; }
     }
 
     private static async Task<StickCalibration[]> ReadCalibrationsAsync(GattCharacteristic command, GattCharacteristic response, CancellationToken token)

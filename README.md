@@ -4,12 +4,17 @@
 
 ## 使用
 
-发布版入口：`artifacts/NS2Pro/NS2Pro.exe`。打开后点击「连接手柄」，拔掉 USB，长按手柄顶部 SYNC，直到指示灯循环闪烁。
+优先使用安装包 `artifacts/release/NS2Pro-0.3.0-win-x64-setup.exe`。安装过程离线补齐缺失的官方 ViGEmBus 驱动，创建开始菜单和桌面入口。日常使用无需管理员权限。
+
+首次启动进入「连接指南」：检查 Windows、蓝牙与驱动，拔掉 USB，点击开始连接，再长按手柄顶部 SYNC，直到指示灯循环闪烁；收到真实输入后记住首次连接已完成。之后默认进入连接总览，仍可随时回到指南。无需在 Windows 蓝牙设置中手动配对。
 
 - **连接总览**：连接 / 断开、报告频率、电量、Xbox 输出状态。
+- **连接指南**：独立环境检查、缺少驱动时从随包安装器补装、蓝牙设置入口、SYNC 操作步骤与真实输入确认。等待较久时提供排查与发现新手柄入口。
 - **手柄测试**：参考官方正面图绘制的原生矢量手柄，按键高亮、摇杆随输入移动；另有摇杆轨迹、轴数值、中心偏移、死区前后比较及数字扳机状态。
 - **按键映射**：Nintendo 布局（默认，A→A）和 Xbox 布局（按位置，A→B），配 ABXY 示意图；切换即时生效。支持 0–30% 摇杆死区。
 - **设置与诊断**：托盘常驻、启动后等待手柄、指定蓝牙地址、运行环境检查、日志与诊断复制。
+
+左下角「联系作者」显示 `945558278@qq.com`，可复制邮箱或打开邮件客户端；不会自动发送诊断数据。
 
 窗口关闭后默认留在系统托盘，连接继续运行。托盘右键菜单提供「打开」和「断开并退出」。也可在设置中关闭托盘常驻。
 
@@ -23,8 +28,10 @@
 - Windows 蓝牙 WinRT API；不使用 Electron 或 WebView 页面。
 - 预览由 WinUI 的 Path、Ellipse、渐变和变换组成，可独立驱动各个按键及双摇杆；不依赖照片底图、浏览器或三维渲染库。
 - ViGEmClient x64 与已有的 ViGEmBus 驱动用于虚拟 Xbox 输出。
-- Windows 最低构建 19041；本机验证环境为 Windows 11 x64，构建 22631。
-- 发布默认自包含 .NET 和 Windows App SDK。目标电脑仍需 BLE 适配器及 ViGEmBus 驱动。
+- 安装包面向 Intel / AMD x64 Windows 10 2004（19041）及以上和 Windows 11；ARM64、32 位系统不在本版支持范围。本机验证环境为 Windows 11 x64，构建 22631。
+- 发布默认自包含 .NET 和 Windows App SDK；无需另装 .NET、Python、WebView2 或启用开发者模式。当前原生 PE 普通与延迟导入检查未发现外置 MSVC 运行库依赖。
+- 目标电脑需支持 LE 中央角色的蓝牙适配器、开启蓝牙，以及 ViGEmBus。安装包附带官方 1.22.0 安装器，缺少驱动时自动安装；仅驱动安装需要管理员权限，可能需要重启。已有驱动时跳过安装，卸载主程序时保留共享驱动和个人设置。
+- Windows 11 的蓝牙吞吐参数 API 使用能力检测，Windows 10 或不支持该参数的适配器使用默认连接参数，输入频率可能不同。Mica 不可用时使用普通背景；支持 Per-Monitor V2 DPI 与小窗口卡片纵向排列。
 - 当前实现按键、摇杆与电量。震动、陀螺仪、耳机音频暂未接入；额外按键可测试，暂不映射到 Xbox。
 
 蓝牙程序只接管匹配产品 ID 的 SYNC / 发现广播，忽略重连与唤醒广播。唯一的专有输出命令是读取摇杆校准数据的 `02/04`；不发送配对、闪存写入或主机唤醒命令。
@@ -39,11 +46,20 @@
 ./scripts/build.ps1           # 协议检查 + Debug 构建
 ./scripts/build.ps1 -Publish  # 协议检查 + 自包含 Release 发布
 ./scripts/install-shortcut.ps1 # 桌面快捷方式，直接启动原生应用
+./scripts/build-release.ps1   # 自包含发布、官方驱动校验、许可收集、安装包与 ZIP
 ```
 
 应用运行时可发布到独立目录，避免占用文件和中断游戏：`./scripts/build.ps1 -Publish -OutputDirectory artifacts/NS2Pro-v0.2.1`，再用 `./scripts/install-shortcut.ps1 -AppDirectory artifacts/NS2Pro-v0.2.1` 更新桌面入口。退出原应用后重开即可使用新版。
 
 `tests/NS2Pro.Core.Tests` 为无额外测试框架依赖的协议检查程序，覆盖记录的真实报告、两套映射、校准读命令、广播过滤和 XInput ABI。
+
+发布脚本固定驱动和编译器版本、SHA-256，并检查厂商数字签名；编译器通过已签名的 NuGet 工具包解压使用，不安装到系统。安装程序由 Inno Setup 6.7.3 构建，中文翻译来自其官方仓库的 `Files/Languages/ChineseSimplified.isl`，保留译者署名。驱动来源和摘要位于 `installer/prerequisites.json`，工具链位于 `installer/toolchain.json`。
+
+`scripts/check-release.ps1 -PublishDirectory artifacts/NS2Pro-v0.3.0-release` 检查运行库、PRI 资源、厂商安装器签名、版本和全文件哈希；结果位于 `artifacts/release/NS2Pro-0.3.0-check-report.json`。`tools/audit_pe_imports.py` 使用 Python 标准库静态读取普通及延迟导入表，不加载或执行被检查的 DLL。构建安装包的开发电脑需要 Python 3 运行此审计；用户电脑无需 Python。
+
+发布前仍需在干净 Windows 10 / Windows 11 x64 电脑验证首次安装、无驱动安装、重启、首次蓝牙连接和卸载。目前本机已有 ViGEmBus，不能以本机通过代替这部分验证；不声明已在其他蓝牙芯片、Windows 10、ARM64 或精简系统实测通过。程序和安装包尚未配置发行者代码签名，首次下载运行可能被 Windows SmartScreen 提示；正式广泛分发前应配置签名。
+
+开发检查首次界面可用 `NS2Pro.exe --preview-onboarding`：使用独立设置、日志和实例锁，禁止连接真实手柄与安装驱动，可与现有游戏连接同时运行。该参数不会加入正常桌面快捷方式。
 
 `tools/fetch_sdk.py` 可从微软官方源分段下载锁定的 SDK，并按官方 SHA-512 校验；工具不修改系统 PATH。
 
@@ -55,6 +71,7 @@
 - `v0.2.0`：原生 WinUI 界面与 C# 蓝牙桥接，映射预设和手柄测试。
 - `v0.2.1`：电量图标、精简总览指标，以及页底游戏输出状态。
 - `v0.2.2`：修正页面滚动条位置，避免覆盖内容卡片。
+- `v0.3.0`：联系入口、首次连接指南、系统兼容处理、离线驱动安装包和发布检查。
 
 旧版脚本 `Start-PC.cmd` 保留为诊断后备，不要与原生应用同时连接同一只手柄。
 
@@ -63,6 +80,7 @@
 - 协议：[ndeadly/switch2_controller_research](https://github.com/ndeadly/switch2_controller_research)
 - 参考实现：[Switch2Connect](https://github.com/TommyWabg/Switch2Connect)、[switch2controllerpc](https://github.com/CareyScott/switch2controllerpc)
 - ViGEmClient 随 [vgamepad 0.1.0](https://pypi.org/project/vgamepad/0.1.0/) 发布；保留许可于 `third_party/vigem/LICENSE.txt`，发布目录也包含该许可。
+- ViGEmBus 使用 [官方 1.22.0 发布](https://github.com/nefarius/ViGEmBus/releases/tag/v1.22.0)的完整签名安装器，保留 BSD-3-Clause 许可。上游已归档；该版本移除了自动更新器，安装包不会添加自定义驱动或关闭系统安全机制。
 - 本次原生界面、协议解析与连接服务在项目中实现。REA 未参与实时蓝牙连接。
 - 应用图标是本项目生成的简洁手柄图形，源脚本为 `tools/generate_icon.py`。
 - 手柄示意图上的 Switch 2 标志为原生矢量重绘，参考任天堂官方图案及 [Wikimedia 矢量标志页面](https://commons.wikimedia.org/wiki/File:Nintendo_Switch_2_logo_transparent_black.svg)，仅用于呈现所连接手柄的外观。

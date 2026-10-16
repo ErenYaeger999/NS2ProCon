@@ -1,0 +1,7 @@
+{
+  "version": "6.7.3",
+  "url": "https://api.nuget.org/v3-flatcontainer/tools.innosetup/6.7.3/tools.innosetup.6.7.3.nupkg",
+  "sha256": "F780898E402FF80612CC8D9FCB8C6E02932BD1CB4C900FFDAA31F9341CFB49F4",
+  "signer": "Pyrsys B.V.",
+  "source": "https://www.nuget.org/packages/Tools.InnoSetup/6.7.3"
+}

@@ -6,3 +6,4 @@
 *.cmd text eol=crlf
 *.dll binary
 *.ico binary
+*.rtf binary
