@@ -20,7 +20,14 @@ public sealed class MainWindow : Window
     private readonly ControllerService controller;
     private readonly NavigationView navigation = new();
     private StackPanel page = new() { Spacing = 22 };
-    private readonly ScrollViewer pageScroll = new() { HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+    // WinUI overlays scrollbars on content; reserve a gutter beyond the cards.
+    private readonly ScrollViewer pageScroll = new() {
+        HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        HorizontalScrollMode = ScrollMode.Disabled,
+        VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+        HorizontalContentAlignment = HorizontalAlignment.Stretch,
+        Padding = new(0, 0, 24, 0)
+    };
     private readonly TextBlock title = Text("连接总览", 28, true);
     private readonly TextBlock subtitle = Text("连接 PC，随时回到主机。", 13, false, "78858B");
     private LiveControls live = new();
@@ -96,7 +103,7 @@ public sealed class MainWindow : Window
         };
         var scroll = pageScroll;
         scroll.Content = pageHost;
-        var content = new Grid { Margin = new(26, 13, 28, 24) };
+        var content = new Grid { Margin = new(26, 13, 4, 24) };
         content.RowDefinitions.Add(new() { Height = GridLength.Auto }); content.RowDefinitions.Add(new() { Height = new(1, GridUnitType.Star) });
         var heading = new StackPanel { Spacing = 5, Margin = new(0, 0, 0, 24), Children = { title, subtitle } };
         content.Children.Add(heading); Grid.SetRow(scroll, 1); content.Children.Add(scroll);
