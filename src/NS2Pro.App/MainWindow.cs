@@ -108,9 +108,20 @@ public sealed partial class MainWindow : Window
         var content = new Grid { Margin = new(26, 13, 4, 24) };
         content.RowDefinitions.Add(new() { Height = GridLength.Auto }); content.RowDefinitions.Add(new() { Height = new(1, GridUnitType.Star) });
         var heading = new StackPanel { Spacing = 5, Margin = new(0, 0, 0, 24), Children = { title, subtitle } };
-        heading.Children.Add(new InfoBar { IsOpen = true, IsClosable = false, Severity = InfoBarSeverity.Warning,
-            Title = "连接 PC 时请勿按 HOME", Message = "HOME 会唤醒 NS2。请用顶部 SYNC 连接 PC；仅在切回主机时按 HOME。",
-            Margin = new(0, 12, 24, 0), HorizontalAlignment = HorizontalAlignment.Stretch });
+        if (settings.ShouldShowConnectionNotice) {
+            var notice = new InfoBar { IsOpen = true, IsClosable = true, Severity = InfoBarSeverity.Warning,
+                Title = "连接 PC 时请勿按 HOME",
+                Message = "HOME 会唤醒 NS2，请用顶部 SYNC 连接 PC。连接成功后，手柄指示灯持续闪烁属于正常现象。",
+                Margin = new(0, 12, 24, 0), HorizontalAlignment = HorizontalAlignment.Stretch };
+            bool dismissedThisRun = false;
+            notice.Closed += (_, args) => {
+                notice.Visibility = Visibility.Collapsed;
+                if (args.Reason != InfoBarCloseReason.CloseButton || dismissedThisRun) return;
+                dismissedThisRun = true;
+                settings.DismissConnectionNotice(); SaveSettings();
+            };
+            heading.Children.Add(notice);
+        }
         content.Children.Add(heading); Grid.SetRow(scroll, 1); content.Children.Add(scroll);
         navigation.Content = content; Grid.SetRow(navigation, 1); root.Children.Add(navigation); Content = root;
         controller.Changed += info => DispatcherQueue.TryEnqueue(() => UpdateStatus(info));

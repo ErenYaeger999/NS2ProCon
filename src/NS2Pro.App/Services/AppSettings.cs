@@ -17,11 +17,16 @@ public sealed class AppSettings
     public string LastControllerAddress { get; set; } = "";
     public bool HasCompletedFirstConnection { get; set; }
     public bool HasSeenConnectionGuide { get; set; }
+    public int ConnectionNoticeDismissCount { get; set; }
     internal bool ShouldShowConnectionGuide => !HasSeenConnectionGuide && !HasCompletedFirstConnection;
+    internal bool ShouldShowConnectionNotice => ConnectionNoticeDismissCount < 3;
+
+    internal void DismissConnectionNotice() => ConnectionNoticeDismissCount = Math.Clamp(ConnectionNoticeDismissCount, 0, 3) + (ShouldShowConnectionNotice ? 1 : 0);
 
     public void Normalize()
     {
         HasSeenConnectionGuide |= HasCompletedFirstConnection;
+        ConnectionNoticeDismissCount = Math.Clamp(ConnectionNoticeDismissCount, 0, 3);
         if (!Enum.IsDefined(Layout)) Layout = ButtonLayout.Labels;
         Deadzone = double.IsFinite(Deadzone) ? Math.Clamp(Deadzone, 0, .3) : .06;
         LastControllerAddress = (LastControllerAddress ?? "").Trim().ToUpperInvariant();

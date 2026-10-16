@@ -84,6 +84,19 @@ var connectedUser = new NS2Pro.App.Services.AppSettings { HasCompletedFirstConne
 connectedUser.Normalize();
 Check(connectedUser.HasSeenConnectionGuide && !connectedUser.ShouldShowConnectionGuide, "A previously connected user does not repeat onboarding");
 Check(!System.Text.Json.JsonSerializer.Serialize(fresh).Contains("ShouldShowConnectionGuide"), "Derived launch routing is not written as a user setting");
+var notices = new NS2Pro.App.Services.AppSettings();
+Check(notices.ShouldShowConnectionNotice && notices.ConnectionNoticeDismissCount == 0, "New and legacy settings start with the combined connection notice enabled");
+for (int count = 1; count <= 3; count++) {
+    notices.DismissConnectionNotice();
+    notices = NS2Pro.App.Services.AppSettings.FromJson(System.Text.Json.JsonSerializer.Serialize(notices));
+    Check(notices.ConnectionNoticeDismissCount == count && notices.ShouldShowConnectionNotice == (count < 3), "Explicit notice dismissals survive restart and stop after the third close");
+}
+notices.DismissConnectionNotice();
+Check(notices.ConnectionNoticeDismissCount == 3, "Permanently dismissed notice cannot increment beyond three");
+notices.ConnectionNoticeDismissCount = int.MaxValue; notices.Normalize();
+Check(notices.ConnectionNoticeDismissCount == 3 && !notices.ShouldShowConnectionNotice, "Out-of-range notice counts stay permanently hidden");
+notices.ConnectionNoticeDismissCount = -4; notices.Normalize();
+Check(notices.ConnectionNoticeDismissCount == 0 && notices.ShouldShowConnectionNotice, "Invalid negative notice count recovers safely");
 var invalid = System.Text.Json.JsonSerializer.Deserialize<NS2Pro.App.Services.AppSettings>("{\"LastControllerAddress\":null,\"Layout\":99,\"Deadzone\":-2}")!;
 invalid.Normalize();
 Check(invalid.LastControllerAddress == "" && invalid.Layout == ButtonLayout.Labels && invalid.Deadzone == 0, "Old or malformed settings cannot break discovery or mapping");
