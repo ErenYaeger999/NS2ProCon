@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using NS2Pro.App.Services;
 
 namespace NS2Pro.App;
 
@@ -8,6 +9,7 @@ internal static class NativeMethods
     [DllImport("user32.dll")] internal static extern bool ShowWindow(IntPtr hwnd, int command);
     [DllImport("user32.dll")] internal static extern bool SetForegroundWindow(IntPtr hwnd);
     [DllImport("user32.dll")] internal static extern uint GetDpiForWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] internal static extern int GetSystemMetricsForDpi(int index, uint dpi);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern IntPtr LoadImage(IntPtr instance, string name, uint type, int x, int y, uint flags);
     [DllImport("user32.dll")] internal static extern bool DestroyIcon(IntPtr icon);
     internal static void ShowExisting(IntPtr hwnd) { ShowWindow(hwnd, 9); SetForegroundWindow(hwnd); }
@@ -19,39 +21,89 @@ internal sealed class TrayIcon : IDisposable
     private const uint Callback = 0x8000 + 71;
     private readonly IntPtr window, icon;
     private readonly SubclassProc procedure;
-    private readonly Action show, exit;
+    private readonly Action show, exit, connect, disconnect;
+    private readonly uint taskbarCreated;
+    private ConnectionPhase phase = ConnectionPhase.Idle;
+    private string tip = App.WindowTitle + " · 未连接 · 右键连接手柄";
     private bool disposed;
-    public TrayIcon(IntPtr window, Action show, Action exit)
+    public TrayIcon(IntPtr window, Action show, Action exit, Action connect, Action disconnect)
     {
-        this.window = window; this.show = show; this.exit = exit;
-        icon = NativeMethods.LoadImage(IntPtr.Zero, Path.Combine(AppContext.BaseDirectory, "Assets", "App.ico"), 1, 0, 0, 0x10 | 0x40);
+        this.window = window; this.show = show; this.exit = exit; this.connect = connect; this.disconnect = disconnect;
+        int pixels = Math.Max(16, NativeMethods.GetSystemMetricsForDpi(49, NativeMethods.GetDpiForWindow(window)));
+        icon = NativeMethods.LoadImage(IntPtr.Zero, Path.Combine(AppContext.BaseDirectory, "Assets", "App.ico"), 1, pixels, pixels, 0x10);
+        if (icon == IntPtr.Zero) throw new InvalidOperationException("无法加载托盘图标");
+        taskbarCreated = RegisterWindowMessage("TaskbarCreated");
         procedure = HandleMessage;
-        if (!SetWindowSubclass(window, procedure, 1, UIntPtr.Zero)) throw new InvalidOperationException("托盘窗口初始化失败");
-        var data = Data();
-        if (!Shell_NotifyIcon(0, ref data)) throw new InvalidOperationException("无法创建托盘图标");
+        if (!SetWindowSubclass(window, procedure, 1, UIntPtr.Zero)) {
+            _ = NativeMethods.DestroyIcon(icon); throw new InvalidOperationException("托盘窗口初始化失败");
+        }
+        if (!RegisterIcon()) {
+            _ = RemoveWindowSubclass(window, procedure, 1); _ = NativeMethods.DestroyIcon(icon);
+            throw new InvalidOperationException("无法创建托盘图标");
+        }
+        AppLog.Write("info", "系统托盘已就绪，可右键连接手柄");
     }
     private NotifyIconData Data() => new() {
         Size = (uint)Marshal.SizeOf<NotifyIconData>(), Window = window, Id = 1,
-        Flags = 1 | 2 | 4, CallbackMessage = Callback, Icon = icon, Tip = "NS2 Pro · 手柄无线连接",
+        Flags = 1 | 2 | 4 | 0x80, CallbackMessage = Callback, Icon = icon, Tip = tip,
         Info = "", InfoTitle = ""
     };
+    private bool RegisterIcon()
+    {
+        var data = Data();
+        if (!Shell_NotifyIcon(0, ref data)) return false;
+        data.TimeoutOrVersion = 4;
+        _ = Shell_NotifyIcon(4, ref data);
+        return true;
+    }
+    public void Update(ConnectionPhase next)
+    {
+        if (disposed || phase == next) return;
+        phase = next;
+        string state = phase switch {
+            ConnectionPhase.Connected => "已连接到 PC",
+            ConnectionPhase.Searching => "等待 SYNC · 请勿按 HOME",
+            ConnectionPhase.Preparing or ConnectionPhase.Connecting => "正在连接 · 请勿按 HOME",
+            ConnectionPhase.Stopping => "正在断开",
+            ConnectionPhase.Error => "连接未完成 · 右键重试",
+            _ => "未连接 · 右键连接手柄"
+        };
+        tip = App.WindowTitle + " · " + state;
+        var data = Data(); data.Flags = 4 | 0x80;
+        _ = Shell_NotifyIcon(1, ref data);
+    }
     private IntPtr HandleMessage(IntPtr hwnd, uint message, UIntPtr wparam, IntPtr lparam, UIntPtr id, UIntPtr data)
     {
+        if (disposed) return DefSubclassProc(hwnd, message, wparam, lparam);
+        if (taskbarCreated != 0 && message == taskbarCreated) {
+            if (!RegisterIcon()) AppLog.Write("warn", "Explorer 重启后暂时无法恢复托盘图标");
+            return IntPtr.Zero;
+        }
         if (message == Callback) {
             uint action = (uint)lparam.ToInt64() & 0xffff;
-            if (action is 0x202 or 0x203) show();
-            if (action == 0x205) {
+            if (action is 0x202 or 0x203 or 0x400 or 0x401) show();
+            if (action is 0x205 or 0x7b) {
                 var menu = CreatePopupMenu();
-                AppendMenu(menu, 0, 1, "打开 NS2 Pro");
-                AppendMenu(menu, 0x800, 0, "");
-                AppendMenu(menu, 0, 2, "断开并退出");
-                GetCursorPos(out var point);
-                NativeMethods.SetForegroundWindow(window);
-                uint command = TrackPopupMenu(menu, 0x100 | 0x2, point.X, point.Y, 0, window, IntPtr.Zero);
-                DestroyMenu(menu);
+                if (menu == IntPtr.Zero) return IntPtr.Zero;
+                uint command;
+                try {
+                    AppendMenu(menu, 0, 1, "打开 NS2 Pro");
+                    bool active = phase is ConnectionPhase.Preparing or ConnectionPhase.Searching or ConnectionPhase.Connecting or ConnectionPhase.Connected;
+                    string label = phase == ConnectionPhase.Connected ? "断开 PC 连接" : active ? "取消连接" : phase == ConnectionPhase.Stopping ? "正在断开…" : "连接手柄（长按 SYNC）";
+                    AppendMenu(menu, AppSettings.IsPreview || phase == ConnectionPhase.Stopping ? 1u : 0u, active ? 4u : 3u, label);
+                    AppendMenu(menu, 0x800, 0, "");
+                    AppendMenu(menu, 0, 2, "断开并退出");
+                    GetCursorPos(out var point);
+                    NativeMethods.SetForegroundWindow(window);
+                    command = TrackPopupMenu(menu, 0x100 | 0x2, point.X, point.Y, 0, window, IntPtr.Zero);
+                } finally { _ = DestroyMenu(menu); }
+                var notification = Data(); _ = Shell_NotifyIcon(3, ref notification);
                 if (command == 1) show();
                 else if (command == 2) exit();
+                else if (command == 3) connect();
+                else if (command == 4) disconnect();
             }
+            return IntPtr.Zero;
         }
         return DefSubclassProc(hwnd, message, wparam, lparam);
     }
@@ -84,4 +136,5 @@ internal sealed class TrayIcon : IDisposable
     [DllImport("user32.dll")] private static extern uint TrackPopupMenu(IntPtr menu, uint flags, int x, int y, int reserved, IntPtr hwnd, IntPtr rectangle);
     [DllImport("user32.dll")] private static extern bool GetCursorPos(out Point point);
     [DllImport("user32.dll")] private static extern bool DestroyMenu(IntPtr menu);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern uint RegisterWindowMessage(string message);
 }

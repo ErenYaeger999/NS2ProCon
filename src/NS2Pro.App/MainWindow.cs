@@ -110,6 +110,9 @@ public sealed partial class MainWindow : Window
         var content = new Grid { Margin = new(26, 13, 4, 24) };
         content.RowDefinitions.Add(new() { Height = GridLength.Auto }); content.RowDefinitions.Add(new() { Height = new(1, GridUnitType.Star) });
         var heading = new StackPanel { Spacing = 5, Margin = new(0, 0, 0, 24), Children = { title, subtitle } };
+        heading.Children.Add(new InfoBar { IsOpen = true, IsClosable = false, Severity = InfoBarSeverity.Warning,
+            Title = "连接 PC 时请勿按 HOME", Message = "HOME 会唤醒 NS2。请用顶部 SYNC 连接 PC；仅在切回主机时按 HOME。",
+            Margin = new(0, 12, 24, 0), HorizontalAlignment = HorizontalAlignment.Stretch });
         content.Children.Add(heading); Grid.SetRow(scroll, 1); content.Children.Add(scroll);
         navigation.Content = content; Grid.SetRow(navigation, 1); root.Children.Add(navigation); Content = root;
         controller.Changed += info => DispatcherQueue.TryEnqueue(() => UpdateStatus(info));
@@ -124,7 +127,9 @@ public sealed partial class MainWindow : Window
         };
         Closed += (_, _) => { timer.Stop(); foreach (var cached in cachedPages.Values) cached.Live.Model?.Dispose(); tray?.Dispose(); AppLog.LineWritten -= LogWritten; };
         try { tray = new(hwnd, () => DispatcherQueue.TryEnqueue(() => { NativeMethods.ShowExisting(hwnd); Activate(); }),
-            () => DispatcherQueue.TryEnqueue(async () => await ExitAsync())); }
+            () => DispatcherQueue.TryEnqueue(async () => await ExitAsync()),
+            () => DispatcherQueue.TryEnqueue(async () => await SetTrayConnectionAsync(true)),
+            () => DispatcherQueue.TryEnqueue(async () => await SetTrayConnectionAsync(false))); }
         catch (Exception error) { AppLog.Write("warn", error.Message); }
         bool initialized = false;
         root.Loaded += (_, _) => {
@@ -153,6 +158,7 @@ public sealed partial class MainWindow : Window
         public readonly TextBlock hzText = Text("—", 26, true);
         public readonly TextBlock batteryText = Text("—", 26, true);
         public readonly BatteryIcon batteryIcon = new();
+        public readonly TextBlock batteryState = new() { FontSize = 12, Foreground = Brush(AppPalette.Muted), Visibility = Visibility.Collapsed };
         public readonly TextBlock outputStatus = Text("连接后启用游戏输出 · Xbox 360 / XInput", 11, false, "767676");
         public readonly Border outputDot = new() { Width = 5, Height = 5, CornerRadius = new(3), Background = Brush("AAAAAA"), VerticalAlignment = VerticalAlignment.Center };
         public readonly TextBlock inputText = Text("等待手柄连接", 12, false, AppPalette.Muted);
@@ -204,7 +210,7 @@ public sealed partial class MainWindow : Window
             page = cached.Content; live = cached.Live; title.Text = cached.Title; subtitle.Text = cached.Subtitle;
         } else {
             page = new StackPanel { Spacing = 22 }; live = new LiveControls(); WireLiveControls();
-            if (selectedPage is "overview" or "test") controllerView.Height = selectedPage == "test" ? 380 : 270;
+            if (selectedPage is "overview" or "test") controllerView.Height = selectedPage == "test" ? 440 : 330;
             switch (selectedPage) {
                 case "setup": BuildSetupPage(); break;
                 case "test": BuildTestPage(); break;
@@ -237,11 +243,10 @@ public sealed partial class MainWindow : Window
         actions.Children.Add(new Border { Height = 1, Background = Brush("EEEEEE"), Margin = new(0, 5, 0, 3) });
         actions.Children.Add(Text("保留 NS2 配对", 13, true));
         actions.Children.Add(Text("用 SYNC 进入 PC 模式；结束后按 HOME 回主机。", 12, false, AppPalette.Muted));
-        actions.Children.Add(Text("避免误唤醒：离线时不要用 HOME 连接 PC。", 12, false, AppPalette.Muted));
         page.Children.Add(Columns(Card(hero, 24), Card(actions, 23), 1.8, 1));
         var battery = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 13 };
         live.batteryIcon.VerticalAlignment = VerticalAlignment.Center;
-        battery.Children.Add(live.batteryIcon); battery.Children.Add(batteryText);
+        battery.Children.Add(live.batteryIcon); battery.Children.Add(new StackPanel { Spacing = 2, Children = { batteryText, live.batteryState } });
         page.Children.Add(Columns(Metric("输入频率", hzText), Metric("手柄电量", battery), 1, 1));
         var preset = new StackPanel { Spacing = 12, Children = { Text("当前映射", 14, true), MappingPreview() } };
         var edit = new Button { Content = "更改预设", HorizontalAlignment = HorizontalAlignment.Right };
@@ -346,19 +351,35 @@ public sealed partial class MainWindow : Window
         try {
             if (controller.Info.Phase is ConnectionPhase.Preparing or ConnectionPhase.Searching or ConnectionPhase.Connecting or ConnectionPhase.Connected)
                 await controller.StopAsync();
-            else {
-                var report = await PrerequisiteService.CheckAsync();
-                if (!report.Ready) {
-                    SelectPage("setup");
-                    if (connectionGuide is not null) await connectionGuide.RefreshEnvironmentAsync();
-                    return;
-                }
-                await controller.StartAsync();
-            }
+            else await BeginConnectionAsync();
         } catch (Exception error) { await ShowInfoAsync("连接操作未完成", error.Message); }
+    }
+    private async Task BeginConnectionAsync()
+    {
+        if (exiting || controller.Info.Phase == ConnectionPhase.Stopping) return;
+        var report = await PrerequisiteService.CheckAsync();
+        if (!report.Ready) {
+            NativeMethods.ShowExisting(WinRT.Interop.WindowNative.GetWindowHandle(this)); Activate();
+            SelectPage("setup");
+            if (connectionGuide is not null) await connectionGuide.RefreshEnvironmentAsync();
+            return;
+        }
+        await controller.StartAsync();
+    }
+    private async Task SetTrayConnectionAsync(bool connect)
+    {
+        if (exiting) return;
+        try {
+            if (connect) await BeginConnectionAsync();
+            else await controller.StopAsync();
+        } catch (Exception error) {
+            NativeMethods.ShowExisting(WinRT.Interop.WindowNative.GetWindowHandle(this)); Activate();
+            await ShowInfoAsync("连接操作未完成", error.Message);
+        }
     }
     private void UpdateStatus(ConnectionInfo info)
     {
+        tray?.Update(info.Phase);
         connectionGuide?.Update(info, controller.Input);
         if (pageFailed || !cachedPages.ContainsKey(selectedPage)) return;
         UpdateMappingLabels();
@@ -390,7 +411,9 @@ public sealed partial class MainWindow : Window
         var state = controller.Input;
         if (selectedPage is "overview" or "test") controllerView.Update(state);
         batteryText.Text = state is null ? "—" : $"{state.BatteryPercent}%";
-        live.batteryIcon.Update(state?.BatteryPercent);
+        live.batteryIcon.Update(state?.BatteryPercent, state?.IsCharging ?? false, state?.HasExternalPower ?? false);
+        live.batteryState.Text = state?.IsCharging == true ? "正在充电" : "已接电源，未充电";
+        live.batteryState.Visibility = state is { IsCharging: true } or { HasExternalPower: true } ? Visibility.Visible : Visibility.Collapsed;
         inputText.Text = state is null ? "尚未接收输入 · 连接后自动开始检测" : $"● 正在接收 · {controller.Info.Hertz:F1} Hz · {controller.Info.Reports:N0} 份报告";
         var left = state?.UnfilteredLeft ?? new(0, 0); var right = state?.UnfilteredRight ?? new(0, 0);
         var leftFiltered = state?.Left ?? new(0, 0); var rightFiltered = state?.Right ?? new(0, 0);

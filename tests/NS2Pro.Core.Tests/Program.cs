@@ -21,6 +21,16 @@ var rc = new StickCalibration(new(2234,2088),new(1500,1500),new(1500,1500));
 var state = ControllerProtocol.Decode(recorded,lc,rc,ButtonLayout.Labels);
 Check(state.Left == new Stick(0,0) && state.Right == new Stick(0,0), "Recorded neutral input");
 Check(state.Xbox.Buttons == 0, "No phantom button presses");
+Check(state.BatteryPercent == 40 && !state.IsCharging && !state.HasExternalPower, "Recorded battery-only power report");
+foreach (byte flags in new byte[] { 1, 2, 3 }) {
+    var powerPacket = (byte[])recorded.Clone(); powerPacket[1] |= flags;
+    var powered = ControllerProtocol.Decode(powerPacket,lc,rc,ButtonLayout.Labels);
+    Check(powered.BatteryPercent == state.BatteryPercent && powered.IsCharging == ((flags & 2) != 0) && powered.HasExternalPower == ((flags & 1) != 0), "Charging and external power flags remain independent of battery level");
+    Check(powered.Xbox.Equals(state.Xbox), "Power transitions do not alter game input");
+}
+var reservedPower = (byte[])recorded.Clone(); reservedPower[1] |= 0xc0;
+var reservedState = ControllerProtocol.Decode(reservedPower,lc,rc,ButtonLayout.Labels);
+Check(reservedState.BatteryPercent == state.BatteryPercent && !reservedState.IsCharging && !reservedState.HasExternalPower, "Reserved power bits cannot create a false charging indicator");
 foreach (var (bit,label,position) in new (byte,ushort,ushort)[] {
     (1,0x2000,0x1000),(2,0x1000,0x2000),(4,0x8000,0x4000),(8,0x4000,0x8000) }) {
     var packet = (byte[])recorded.Clone(); packet[2] = bit;

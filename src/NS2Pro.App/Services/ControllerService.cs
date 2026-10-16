@@ -161,7 +161,10 @@ public sealed class ControllerService(AppSettings settings)
                 try {
                     var decoded = ControllerProtocol.Decode(ReadBuffer(args.CharacteristicValue), calibration[0], calibration[1], settings.Layout, settings.Deadzone);
                     output.Update(decoded.Xbox);
+                    var previous = input;
                     input = decoded;
+                    if (previous is null || previous.IsCharging != decoded.IsCharging || previous.HasExternalPower != decoded.HasExternalPower)
+                        AppLog.Write("info", $"手柄电源：{decoded.BatteryPercent}% · {(decoded.IsCharging ? "正在充电" : decoded.HasExternalPower ? "已接电源，未充电" : "电池供电")}");
                     Interlocked.Increment(ref count);
                     seenRight |= decoded.RightButtons; seenLeft |= decoded.LeftButtons; seenExtra |= decoded.ExtraButtons;
                     leftTravel=Math.Max(leftTravel,Math.Sqrt(decoded.UnfilteredLeft.X*decoded.UnfilteredLeft.X+decoded.UnfilteredLeft.Y*decoded.UnfilteredLeft.Y));

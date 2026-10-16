@@ -22,13 +22,15 @@ public sealed class ControllerFaceView : UserControl, IDisposable
     private readonly Brush shoulderFill = Gradient("D3D9DA", "9CA7AC");
     private ControllerInput? previous;
     private bool updated;
-    private sealed record Key(Shape Surface, Brush Rest, TranslateTransform Movement);
+    private sealed record Key(Shape Surface, Brush Rest, TranslateTransform Movement, TextBlock? Label = null, string LabelColor = "454545");
 
     public ControllerFaceView()
     {
         Height = 320;
         IsHitTestVisible = false;
+        var root = new Canvas { Width = 975, Height = 936 };
         var canvas = new Canvas { Width = 975, Height = 724 };
+        Canvas.SetTop(canvas, 70); root.Children.Add(canvas);
         // Light shoulder covers sit above the dark shell; the grips themselves are dark.
         AddKey(canvas, "L", Path("M 146 111 C 167 61 230 28 305 26 C 339 26 360 43 377 61 L 352 101 Z", shoulderFill), shoulderFill, "", 0, 0);
         AddKey(canvas, "R", Path("M 599 61 C 616 43 637 26 671 26 C 746 28 809 61 830 111 L 624 101 Z", shoulderFill), shoulderFill, "", 0, 0);
@@ -42,9 +44,10 @@ public sealed class ControllerFaceView : UserControl, IDisposable
         AddRoundKey(canvas,"X",715,163,35,"X"); AddRoundKey(canvas,"Y",645,224,35,"Y");
         AddRoundKey(canvas,"A",785,224,35,"A"); AddRoundKey(canvas,"B",715,285,35,"B");
         AddMenuKey(canvas,"−",382,153,false); AddMenuKey(canvas,"+",593,153,true);
-        var home = AddRoundKey(canvas,"HOME",541,224,23,"",27);
-        var homeSymbol = Path("M 12 0 L 25 11 L 22 11 L 22 25 L 15 25 L 15 17 L 9 17 L 9 25 L 2 25 L 2 11 L 0 11 Z", Solid("C5CED1"));
-        Canvas.SetLeft(homeSymbol, 15); Canvas.SetTop(homeSymbol, 13); home.Children.Add(homeSymbol);
+        var home = AddRoundKey(canvas,"HOME",541,224,28,"");
+        // A larger, high-contrast filled house retains solid walls and a clear door at small sizes.
+        var homeSymbol = Path("M 16 1 L 32 15 L 29 18 L 27 16 V 31 H 20 V 23 H 12 V 31 H 5 V 16 L 3 18 L 0 15 Z", Solid("E8EDEE"));
+        Canvas.SetLeft(homeSymbol, 16); Canvas.SetTop(homeSymbol, 15); home.Children.Add(homeSymbol);
         AddSquareKey(canvas,"截图",433,224,38,"○",22);
         AddSquareKey(canvas,"C",487,415,36,"C",22);
         var dpad = Path("M 338 280 Q 338 274 344 274 L 375 274 Q 381 274 381 280 L 381 318 L 420 318 Q 426 318 426 324 L 426 355 Q 426 361 420 361 L 381 361 L 381 400 Q 381 406 375 406 L 344 406 Q 338 406 338 400 L 338 361 L 299 361 Q 293 361 293 355 L 293 324 Q 293 318 299 318 L 338 318 Z", keyFill);
@@ -55,10 +58,14 @@ public sealed class ControllerFaceView : UserControl, IDisposable
         AddDpadKey(canvas,"→","M 379 322 L 422 322 L 422 357 L 379 357 Z",404,339,"▶");
         var mark = new Switch2Mark { Width = 128, Height = 106 };
         Canvas.SetLeft(mark, 424); Canvas.SetTop(mark, 76); canvas.Children.Add(mark);
-        // Controls outside the front silhouette are clearly labeled indicators, not fake body parts.
-        Indicator(canvas,"ZL",230,13); Indicator(canvas,"ZR",746,13);
-        Indicator(canvas,"GL",379,698); Indicator(canvas,"GR",487,698); Indicator(canvas,"LS",595,698); Indicator(canvas,"RS",703,698);
-        Content=new Viewbox { Child=canvas, Stretch=Stretch.Uniform };
+        // Separate flat silhouettes expose controls hidden by the front view.
+        AddRearControl(root,"ZL",230,42,trigger:true,mirror:false);
+        AddRearControl(root,"ZR",746,42,trigger:true,mirror:true);
+        // Both rows share the shell's horizontal center; stick clicks remain simple indicators.
+        AddRearControl(root,"GL",379.5,810,trigger:false,mirror:false);
+        AddRearControl(root,"GR",595.5,810,trigger:false,mirror:true);
+        Indicator(root,"LS",403.5,904); Indicator(root,"RS",571.5,904);
+        Content=new Viewbox { Child=root, Stretch=Stretch.Uniform };
         AutomationProperties.SetName(this,"NS2 Pro 正面矢量预览，按键高亮，摇杆随输入移动");
     }
     private Ellipse AddStick(Canvas canvas,double x,double y,double radius,TranslateTransform movement)
@@ -108,19 +115,36 @@ public sealed class ControllerFaceView : UserControl, IDisposable
     }
     private void Indicator(Canvas canvas,string name,double x,double y)
     {
-        var rect=new Rectangle { Width=70,Height=24,RadiusX=10,RadiusY=10,Fill=Solid("EEEEEE"),Stroke=Solid("DADADA"),StrokeThickness=1 };
-        Canvas.SetLeft(rect,x-35);Canvas.SetTop(rect,y-12);canvas.Children.Add(rect);
-        Label(canvas,name,x,y,13,"666666",true);keys[name]=new(rect,rect.Fill,new());
+        var rect=new Rectangle { Width=112,Height=48,RadiusX=12,RadiusY=12,Fill=Solid("EEEEEE"),Stroke=Solid("D2D2D2"),StrokeThickness=2 };
+        Canvas.SetLeft(rect,x-56);Canvas.SetTop(rect,y-24);canvas.Children.Add(rect);
+        var label=Label(canvas,name,x,y,28,"454545",true);keys[name]=new(rect,rect.Fill,new(),label,"454545");
+    }
+    private void AddRearControl(Canvas canvas,string name,double x,double y,bool trigger,bool mirror)
+    {
+        var group=new Canvas { Width=176,Height=trigger?84:72 };
+        Canvas.SetLeft(group,x-88);Canvas.SetTop(group,y-group.Height/2);canvas.Children.Add(group);
+        var fill=Solid(trigger?"D9DFE0":"41494E");
+        var shape=Path(trigger
+            ? "M 19 4 Q 88 -3 157 4 Q 168 6 170 19 L 175 60 Q 177 78 159 80 H 17 Q -1 78 1 60 L 6 19 Q 8 6 19 4 Z"
+            : "M 24 2 H 148 C 158 2 164 10 161 20 L 149 56 C 146 66 139 70 128 70 H 18 C 8 70 3 61 7 51 L 17 13 C 18 7 20 4 24 2 Z",fill);
+        shape.Stroke=Solid(trigger?"8F999F":"242C31");shape.StrokeThickness=3;
+        if(mirror)shape.RenderTransform=new ScaleTransform { ScaleX=-1,CenterX=88 };
+        group.Children.Add(shape);
+        var label=Label(group,name,88,trigger?41:36,36,trigger?"343C41":"F0F3F4",true);
+        var movement=new TranslateTransform();group.RenderTransform=movement;
+        keys[name]=new(shape,fill,movement,label,trigger?"343C41":"F0F3F4");
     }
     private static Ellipse Circle(Canvas canvas,double x,double y,double r,Brush fill,Brush? stroke,double thickness)
     {
         var circle=new Ellipse { Width=r*2,Height=r*2,Fill=fill,Stroke=stroke,StrokeThickness=thickness };Canvas.SetLeft(circle,x-r);Canvas.SetTop(circle,y-r);canvas.Children.Add(circle);return circle;
     }
-    private static void Label(Canvas canvas,string label,double x,double y,double font,string color,bool bold=false)
+    private static TextBlock Label(Canvas canvas,string label,double x,double y,double font,string color,bool bold=false)
     {
         var slot=new Grid { Width=110,Height=font*1.5 };
-        slot.Children.Add(new TextBlock { Text=label,FontSize=font,TextAlignment=TextAlignment.Center,VerticalAlignment=VerticalAlignment.Center,Foreground=Solid(color),FontWeight=bold?Microsoft.UI.Text.FontWeights.SemiBold:Microsoft.UI.Text.FontWeights.Normal });
+        var text=new TextBlock { Text=label,FontSize=font,TextAlignment=TextAlignment.Center,VerticalAlignment=VerticalAlignment.Center,Foreground=Solid(color),FontWeight=bold?Microsoft.UI.Text.FontWeights.SemiBold:Microsoft.UI.Text.FontWeights.Normal };
+        slot.Children.Add(text);
         Canvas.SetLeft(slot,x-55);Canvas.SetTop(slot,y-font*.75);canvas.Children.Add(slot);
+        return text;
     }
     private static ShapePath Path(string data,Brush fill)
     {
@@ -133,6 +157,7 @@ public sealed class ControllerFaceView : UserControl, IDisposable
         if(updated&&ReferenceEquals(previous,state))return; previous=state;updated=true;
         foreach(var (name,key) in keys) {
             bool down=ControllerProtocol.IsPressed(name,state);key.Surface.Fill=down?accent:key.Rest;key.Movement.Y=down?2:0;
+            if(key.Label is not null)key.Label.Foreground=Solid(down?"FFFFFF":key.LabelColor);
         }
         leftMovement.X=(state?.UnfilteredLeft.X??0)*20;leftMovement.Y=-(state?.UnfilteredLeft.Y??0)*20;
         rightMovement.X=(state?.UnfilteredRight.X??0)*20;rightMovement.Y=-(state?.UnfilteredRight.Y??0)*20;

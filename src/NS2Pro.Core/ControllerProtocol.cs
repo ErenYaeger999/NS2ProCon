@@ -18,7 +18,7 @@ public struct XboxReport
 }
 
 public sealed record ControllerInput(XboxReport Xbox, Stick Left, Stick Right, Stick UnfilteredLeft, Stick UnfilteredRight,
-    byte RightButtons, byte LeftButtons, byte ExtraButtons, int BatteryPercent);
+    byte RightButtons, byte LeftButtons, byte ExtraButtons, int BatteryPercent, bool IsCharging = false, bool HasExternalPower = false);
 
 /// <summary>Pure protocol code. No radio, pairing or flash write operations.</summary>
 public static class ControllerProtocol
@@ -100,7 +100,10 @@ public static class ControllerProtocol
         };
         return new(report, ls, rs,
             Normalize(UnpackStick(data[5..]), leftCalibration, 0), Normalize(UnpackStick(data[8..]), rightCalibration, 0),
-            right, left, extra, Math.Clamp(((data[1] >> 2) & 15) * 10, 0, 100));
+            // Pro report Power Info: bit 0 = external power, bit 1 = charging, bits 2–5 = level.
+            // https://github.com/ndeadly/switch2_controller_research/blob/master/hid_reports.md#input-report-0x09
+            right, left, extra, Math.Clamp(((data[1] >> 2) & 15) * 10, 0, 100),
+            (data[1] & 2) != 0, (data[1] & 1) != 0);
     }
 
     public static byte[] CalibrationReadRequest(uint address)
