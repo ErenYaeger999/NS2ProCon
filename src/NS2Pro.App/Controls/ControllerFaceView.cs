@@ -41,7 +41,7 @@ public sealed class ControllerFaceView : UserControl, IDisposable
         rightRim = AddStick(canvas, 601, 351, 77, rightMovement);
         AddRoundKey(canvas,"X",715,163,35,"X"); AddRoundKey(canvas,"Y",645,224,35,"Y");
         AddRoundKey(canvas,"A",785,224,35,"A"); AddRoundKey(canvas,"B",715,285,35,"B");
-        AddRoundKey(canvas,"−",382,153,21,"−",22); AddRoundKey(canvas,"+",593,153,21,"+",22);
+        AddMenuKey(canvas,"−",382,153,false); AddMenuKey(canvas,"+",593,153,true);
         var home = AddRoundKey(canvas,"HOME",541,224,23,"",27);
         var homeSymbol = Path("M 12 0 L 25 11 L 22 11 L 22 25 L 15 25 L 15 17 L 9 17 L 9 25 L 2 25 L 2 11 L 0 11 Z", Solid("C5CED1"));
         Canvas.SetLeft(homeSymbol, 15); Canvas.SetTop(homeSymbol, 13); home.Children.Add(homeSymbol);
@@ -80,6 +80,15 @@ public sealed class ControllerFaceView : UserControl, IDisposable
         var movement=new TranslateTransform();group.RenderTransform=movement;
         if(label.Length > 0) Label(group,label,radius+4,radius+3,font,"D4DCDD");keys[name]=new(face,keyFill,movement);
         return group;
+    }
+    private void AddMenuKey(Canvas canvas,string name,double x,double y,bool plus)
+    {
+        var group=AddRoundKey(canvas,name,x,y,21,"");
+        // Filled geometry keeps small strokes legible when the model is scaled down.
+        // Both symbols share the face center (25, 24) and a four-unit bar thickness.
+        group.Children.Add(Path(plus
+            ? "M 23 15 H 27 V 22 H 34 V 26 H 27 V 33 H 23 V 26 H 16 V 22 H 23 Z"
+            : "M 16 22 H 34 V 26 H 16 Z",Solid("D4DCDD")));
     }
     private void AddSquareKey(Canvas canvas,string name,double x,double y,double size,string label,double font)
     {
