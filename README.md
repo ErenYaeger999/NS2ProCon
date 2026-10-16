@@ -4,9 +4,11 @@
 
 ## 使用
 
-优先使用安装包 `artifacts/release/NS2Pro-0.5.1-win-x64-setup.exe`。安装过程离线补齐缺失的官方 ViGEmBus 驱动，创建开始菜单和桌面入口。日常使用无需管理员权限。
+优先使用安装包 `artifacts/release/NS2Pro-0.5.2-win-x64-setup.exe`。安装过程离线补齐缺失的官方 ViGEmBus 驱动，创建开始菜单和桌面入口。日常使用无需管理员权限。
 
-首次启动进入「连接指南」：检查 Windows、蓝牙与驱动，拔掉 USB，点击开始连接，再长按手柄顶部 SYNC，直到指示灯循环闪烁；收到真实输入后记住首次连接已完成。之后默认进入连接总览，仍可随时回到指南。无需在 Windows 蓝牙设置中手动配对。
+新安装首次打开进入「连接指南」：检查 Windows、蓝牙与驱动，拔掉 USB，点击开始连接，再长按手柄顶部 SYNC，直到指示灯循环闪烁。看过指南后，后续冷启动即进入连接总览，无需先完成连接；旧版升级也直接进入总览。仍可随时从左侧打开指南，无需在 Windows 蓝牙设置中手动配对。
+
+同一 Windows 会话只保留一个运行实例，正式模式与引导预览共用限制，不因版本或目录不同而绕过。重复双击仅恢复现有窗口，包括已最小化或隐藏到托盘的窗口；不会创建另一只虚拟手柄或重新接管蓝牙。
 
 - **连接总览**：连接 / 断开、报告频率、电量与充电状态、Xbox 输出状态。电池在 >20% 时为绿色、11–20% 为黄色、≤10% 为红色；正在充电时显示闪电，接电但未充电时不会显示闪电。
 - **连接指南**：独立环境检查、缺少驱动时从随包安装器补装、蓝牙设置入口、SYNC 操作步骤与真实输入确认。等待较久时提供排查与发现新手柄入口。
@@ -51,15 +53,17 @@
 
 应用运行时可发布到独立目录，避免占用文件和中断游戏：`./scripts/build.ps1 -Publish -OutputDirectory artifacts/NS2Pro-v0.2.1`，再用 `./scripts/install-shortcut.ps1 -AppDirectory artifacts/NS2Pro-v0.2.1` 更新桌面入口。退出原应用后重开即可使用新版。
 
-`tests/NS2Pro.Core.Tests` 为无额外测试框架依赖的协议检查程序，覆盖记录的真实报告、两套映射、校准读命令、广播过滤和 XInput ABI。
+日常修改只运行 `build.ps1` 做检查，或用 `build.ps1 -Publish` 更新可运行目录；不逐次生成安装包和 ZIP。整批修改确认完成、准备推送或发布时，再统一运行 `build-release.ps1`。
+
+`tests/NS2Pro.Core.Tests` 为无额外测试框架依赖的检查程序，覆盖记录的真实报告、两套映射、校准读命令、广播过滤、XInput ABI、旧设置迁移和首次指南路由。Windows 上通过隔离名称的真实子进程验证并发启动、启动期激活、旧预览互斥、退出与崩溃后的锁恢复，不连接手柄或影响正在运行的应用。
 
 发布脚本固定驱动和编译器版本、SHA-256，并检查厂商数字签名；编译器通过已签名的 NuGet 工具包解压使用，不安装到系统。安装程序由 Inno Setup 6.7.3 构建，中文翻译来自其官方仓库的 `Files/Languages/ChineseSimplified.isl`，保留译者署名。驱动来源和摘要位于 `installer/prerequisites.json`，工具链位于 `installer/toolchain.json`。
 
-`scripts/check-release.ps1 -PublishDirectory artifacts/NS2Pro-v0.5.1-release` 检查运行库、PRI 和图标资源、厂商安装器签名、版本和全文件哈希；结果位于 `artifacts/release/NS2Pro-0.5.1-check-report.json`。`tools/audit_pe_imports.py` 使用 Python 标准库静态读取普通及延迟导入表，不加载或执行被检查的 DLL。构建安装包的开发电脑需要 Python 3 运行此审计；用户电脑无需 Python。
+`scripts/check-release.ps1 -PublishDirectory artifacts/NS2Pro-v0.5.2-release` 检查运行库、PRI 和图标资源、厂商安装器签名、版本和全文件哈希；结果位于 `artifacts/release/NS2Pro-0.5.2-check-report.json`。`tools/audit_pe_imports.py` 使用 Python 标准库静态读取普通及延迟导入表，不加载或执行被检查的 DLL。构建安装包的开发电脑需要 Python 3 运行此审计；用户电脑无需 Python。
 
 发布前仍需在干净 Windows 10 / Windows 11 x64 电脑验证首次安装、无驱动安装、重启、首次蓝牙连接和卸载。目前本机已有 ViGEmBus，不能以本机通过代替这部分验证；不声明已在其他蓝牙芯片、Windows 10、ARM64 或精简系统实测通过。程序和安装包尚未配置发行者代码签名，首次下载运行可能被 Windows SmartScreen 提示；正式广泛分发前应配置签名。
 
-开发检查首次界面可用 `NS2Pro.exe --preview-onboarding`：使用独立设置、日志和实例锁，禁止连接真实手柄与安装驱动，可与现有游戏连接同时运行。该参数不会加入正常桌面快捷方式。
+开发检查首次界面可用 `NS2Pro.exe --preview-onboarding`：使用独立设置和日志，禁止连接真实手柄与安装驱动，但与正式模式共用单实例限制，需先退出正式模式。预览每次仍显示指南，该参数不会加入正常桌面快捷方式。
 
 `tools/fetch_sdk.py` 可从微软官方源分段下载锁定的 SDK，并按官方 SHA-512 校验；工具不修改系统 PATH。
 
@@ -76,6 +80,7 @@
 - `v0.4.0`：红白主题与统一手柄图标，小尺寸图标单独优化。
 - `v0.5.0`：扳机和背键图示、底部两行居中、HOME 提醒、充电状态与托盘快捷连接。
 - `v0.5.1`：统一侧栏底部操作与版本信息，完善联系面板与退出反馈。
+- `v0.5.2`：收紧单实例、启动期激活与崩溃恢复，移除启动占位文案，指南仅首次出现。
 
 旧版脚本 `Start-PC.cmd` 保留为诊断后备，不要与原生应用同时连接同一只手柄。
 

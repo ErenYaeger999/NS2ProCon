@@ -21,7 +21,7 @@ public sealed class ControllerService(AppSettings settings)
     private CancellationTokenSource? cancellation;
     private Task? running;
     private readonly SemaphoreSlim lifecycle = new(1, 1);
-    private volatile ConnectionInfo info = new(ConnectionPhase.Idle, "准备好连接你的手柄");
+    private volatile ConnectionInfo info = new(ConnectionPhase.Idle, "");
     private volatile ControllerInput? input;
     public ConnectionInfo Info => info;
     public ControllerInput? Input => input;

@@ -133,7 +133,9 @@ public sealed partial class MainWindow : Window
         root.Loaded += (_, _) => {
             if (initialized) return;
             initialized = true;
-            SelectPage(settings.HasCompletedFirstConnection ? "overview" : "setup");
+            bool showGuide = AppSettings.IsPreview || settings.ShouldShowConnectionGuide;
+            settings.HasSeenConnectionGuide = true; SaveSettings();
+            SelectPage(showGuide ? "setup" : "overview");
             AppLog.Write("info", $"NS2 Pro v{AppVersion} 已启动 · WinUI 3");
             if (settings.AutoStartConnection && settings.HasCompletedFirstConnection) _ = controller.StartAsync();
         };
@@ -151,7 +153,7 @@ public sealed partial class MainWindow : Window
     private sealed class LiveControls
     {
         public readonly TextBlock badge = Text("未连接", 12, true, "666666");
-        public readonly TextBlock statusText = Text("准备好连接你的手柄", 14);
+        public readonly TextBlock statusText = Text("", 14);
         public readonly TextBlock addressText = Text("蓝牙 LE · 保留 NS2 配对", 12, false, AppPalette.Muted);
         public readonly TextBlock hzText = Text("—", 26, true);
         public readonly TextBlock batteryText = Text("—", 26, true);
@@ -384,6 +386,7 @@ public sealed partial class MainWindow : Window
         badge.Text = info.Phase switch { ConnectionPhase.Connected => "● 已连接", ConnectionPhase.Searching => "● 等待 SYNC", ConnectionPhase.Connecting => "● 连接中", ConnectionPhase.Error => "● 需要处理", _ => "○ 未连接" };
         badge.Foreground = Brush(info.Phase == ConnectionPhase.Connected ? AppPalette.AccentText : info.Phase == ConnectionPhase.Error ? "AC6635" : AppPalette.Muted);
         statusText.Text = info.Message;
+        statusText.Visibility = string.IsNullOrWhiteSpace(info.Message) ? Visibility.Collapsed : Visibility.Visible;
         addressText.Text = info.Address is null ? "蓝牙 LE · 保留 NS2 配对" : info.Address + " · 蓝牙 LE";
         connectButton.Content = info.Phase switch { ConnectionPhase.Connected => "断开 PC 连接", ConnectionPhase.Preparing or ConnectionPhase.Searching or ConnectionPhase.Connecting => "取消连接", ConnectionPhase.Stopping => "正在断开…", _ => "连接手柄" };
         connectButton.IsEnabled = info.Phase != ConnectionPhase.Stopping;

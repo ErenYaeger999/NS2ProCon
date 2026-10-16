@@ -1,5 +1,5 @@
 using Microsoft.UI.Xaml;
-using System.Diagnostics;
+using NS2Pro.App.Services;
 
 namespace NS2Pro.App;
 
@@ -7,9 +7,10 @@ public partial class App : Application
 {
     internal static string WindowTitle => Services.AppSettings.IsPreview ? "NS2 Pro · 引导预览" : "NS2 Pro";
     private MainWindow? window;
-    private Mutex? instanceMutex;
-    public App()
+    private readonly SingleInstance instance;
+    internal App(SingleInstance instance)
     {
+        this.instance = instance;
         InitializeComponent();
         UnhandledException += (_, args) => {
             Services.AppLog.Write("error", args.Exception.ToString());
@@ -18,14 +19,12 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        instanceMutex = new Mutex(true, "Local\\NS2Pro.NativeApp" + (Services.AppSettings.IsPreview ? ".Preview" : ""), out bool first);
-        if (!first) {
-            var handle = NativeMethods.FindWindow(null, WindowTitle);
-            if (handle != IntPtr.Zero) NativeMethods.ShowExisting(handle);
-            Exit();
-            return;
-        }
         window = new MainWindow();
+        var dispatcher = window.DispatcherQueue;
+        instance.Listen(() => dispatcher.TryEnqueue(() => {
+            NativeMethods.ShowExisting(WinRT.Interop.WindowNative.GetWindowHandle(window));
+            window.Activate();
+        }));
         window.Activate();
     }
 }

@@ -1,6 +1,10 @@
 using NS2Pro.Core;
 using System.Runtime.InteropServices;
 
+if (OperatingSystem.IsWindows() && SingleInstanceChecks.RunProbe(args) is int probeResult) {
+    Environment.ExitCode = probeResult; return;
+}
+
 int passed = 0;
 void Check(bool value, string message) { if (!value) throw new Exception(message); passed++; }
 var standard = Convert.FromHexString("0100037E0569200001000000000000000F00000000000000");
@@ -70,6 +74,16 @@ Check(wrong,"Mismatched read response rejected");
 Check(Marshal.SizeOf<XboxReport>() == 12,"XInput native ABI structure size");
 var fresh = new NS2Pro.App.Services.AppSettings();
 Check(fresh.LastControllerAddress == "" && !fresh.HasCompletedFirstConnection, "Fresh install discovers the user's controller and opens onboarding");
+Check(fresh.ShouldShowConnectionGuide, "Guide appears for a new install");
+fresh.HasSeenConnectionGuide = true;
+var reopened = NS2Pro.App.Services.AppSettings.FromJson(System.Text.Json.JsonSerializer.Serialize(fresh));
+Check(!reopened.ShouldShowConnectionGuide && !reopened.HasCompletedFirstConnection, "A returning user opens overview even if they have not connected yet");
+var upgraded = NS2Pro.App.Services.AppSettings.FromJson("{\"HasCompletedFirstConnection\":false}");
+Check(upgraded.HasSeenConnectionGuide && !upgraded.ShouldShowConnectionGuide, "Existing settings migrate to overview without repeating onboarding");
+var connectedUser = new NS2Pro.App.Services.AppSettings { HasCompletedFirstConnection = true };
+connectedUser.Normalize();
+Check(connectedUser.HasSeenConnectionGuide && !connectedUser.ShouldShowConnectionGuide, "A previously connected user does not repeat onboarding");
+Check(!System.Text.Json.JsonSerializer.Serialize(fresh).Contains("ShouldShowConnectionGuide"), "Derived launch routing is not written as a user setting");
 var invalid = System.Text.Json.JsonSerializer.Deserialize<NS2Pro.App.Services.AppSettings>("{\"LastControllerAddress\":null,\"Layout\":99,\"Deadzone\":-2}")!;
 invalid.Normalize();
 Check(invalid.LastControllerAddress == "" && invalid.Layout == ButtonLayout.Labels && invalid.Deadzone == 0, "Old or malformed settings cannot break discovery or mapping");
@@ -82,4 +96,5 @@ Check(SystemRequirements.GetIssue(new Version(10,0,19040),Architecture.X64) is n
 Check(SystemRequirements.GetIssue(new Version(10,0,26100),Architecture.X64) is null, "Windows 11 accepted");
 Check(SystemRequirements.GetIssue(new Version(10,0,26100),Architecture.Arm64) is not null, "Untested ARM64 is not advertised as supported");
 Check(SystemRequirements.GetIssue(new Version(10,0,26100),Architecture.X86) is not null, "32-bit Windows rejected");
-Console.WriteLine($"PASS: {passed} protocol and mapping checks.");
+if (OperatingSystem.IsWindows()) passed += SingleInstanceChecks.Run();
+Console.WriteLine($"PASS: {passed} protocol, settings and single-instance checks.");

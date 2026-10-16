@@ -14,6 +14,7 @@
     <RootNamespace>NS2Pro.App</RootNamespace>
     <ApplicationIcon>Assets\App.ico</ApplicationIcon>
     <EnableMsixTooling>false</EnableMsixTooling>
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="..\..\installer\prerequisites.json" LogicalName="NS2Pro.App.Prerequisites.json" />

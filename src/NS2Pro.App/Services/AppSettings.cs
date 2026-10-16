@@ -16,9 +16,12 @@ public sealed class AppSettings
     public bool AutoStartConnection { get; set; }
     public string LastControllerAddress { get; set; } = "";
     public bool HasCompletedFirstConnection { get; set; }
+    public bool HasSeenConnectionGuide { get; set; }
+    internal bool ShouldShowConnectionGuide => !HasSeenConnectionGuide && !HasCompletedFirstConnection;
 
     public void Normalize()
     {
+        HasSeenConnectionGuide |= HasCompletedFirstConnection;
         if (!Enum.IsDefined(Layout)) Layout = ButtonLayout.Labels;
         Deadzone = double.IsFinite(Deadzone) ? Math.Clamp(Deadzone, 0, .3) : .06;
         LastControllerAddress = (LastControllerAddress ?? "").Trim().ToUpperInvariant();
@@ -29,11 +32,20 @@ public sealed class AppSettings
     public static AppSettings Load()
     {
         try {
-            var settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath)) ?? new();
-            settings.Normalize();
-            return settings;
+            return FromJson(File.ReadAllText(FilePath));
         }
         catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { return new(); }
+    }
+
+    internal static AppSettings FromJson(string json)
+    {
+        var settings = JsonSerializer.Deserialize<AppSettings>(json) ?? new();
+        using var document = JsonDocument.Parse(json);
+        // An existing settings file predates the seen flag: its user has already opened the app.
+        if (document.RootElement.ValueKind == JsonValueKind.Object && !document.RootElement.TryGetProperty(nameof(HasSeenConnectionGuide), out _))
+            settings.HasSeenConnectionGuide = true;
+        settings.Normalize();
+        return settings;
     }
     public void Save()
     {
