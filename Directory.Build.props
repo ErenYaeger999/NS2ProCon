@@ -3,7 +3,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
-    <Version>0.5.2</Version>
+    <Version>0.6.0</Version>
     <AppDisplayName>NS2Pro手柄PC连接器</AppDisplayName>
     <Authors>NS2ProCon contributors</Authors>
     <Deterministic>true</Deterministic>

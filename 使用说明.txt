@@ -1,68 +1,19 @@
-NS2 Pro 原生应用（WinUI 3）
+NS2Pro手柄PC连接器
 
-1. 双击桌面「NS2 Pro 无线连接 PC」，或 artifacts/NS2Pro/NS2Pro.exe。
-2. 点击「连接手柄」，拔掉 USB，长按顶部 SYNC 小键至指示灯循环闪烁。
-3. 手柄测试会自动开始；「正在接收」和报告计数增长表示输入已进入应用。
-4. 正面矢量预览中，按键按住亮起、摇杆随输入移动。GL/GR 等输入也有独立状态指示。
-5. 按键映射中选择 Nintendo 布局（字母对应，A→A，默认）或 Xbox 布局（位置对应，A→B）。即时生效。
-6. 关闭窗口默认留在系统托盘，游戏连接继续；「退出应用」会断开并退出。
-7. 回 NS2：点击「切回 NS2」或退出应用，再按 HOME；无需重新配对。
+推荐从 GitHub Release 下载并安装：
+https://github.com/ErenYaeger999/NS2ProCon/releases/latest
 
-原生应用不需要旧控制台。旧控制台还开着时，先按 Ctrl+C 结束，再由本应用连接。
-正面预览参考任天堂官方实物图，以原生矢量图形绘制，可缩放并独立显示输入状态。
-图标为项目自制的青绿色手柄图形。
+1. 打开应用，首次进入按连接指南检查环境。
+2. 拔掉 USB，点击连接手柄，再长按顶部 SYNC，直到指示灯循环闪烁。
+3. 连接成功后即可开始游戏，或到手柄测试页查看按键与双摇杆。
+4. 回到 NS2：先断开 PC，再按 HOME，无需重新配对。
 
-避免误唤醒：PC 连接用 SYNC；离线 HOME 仍会唤醒原来的 NS2。
+连接 PC 时请勿按 HOME，它会唤醒 NS2；连接后指示灯持续闪烁属于正常现象。
+点叉默认断开并退出，最小化保持连接；可在设置中主动开启后台运行。
 
-桌面入口如因移动项目失效，运行 scripts/install-shortcut.ps1 重新生成。
+功能、系统要求、空间占用与致谢见 README.md。
+Start-PC.cmd 和 tools 中的 Python 程序为开发诊断后备，需要自行准备 Python 依赖；
+它们不包含在安装版中，也不要与原生应用同时连接手柄。
+后备脚本默认发现处于 SYNC 的 Pro 手柄，可用 --address 指定蓝牙地址。
 
-以下是旧版 Python 后备脚本的说明（不与原生应用同时运行）：
-Switch 2 Pro 手柄无线连接 PC（保留 NS2 配对）
-
-已实测的操作方式
-1. 双击本目录 Start-PC.cmd，保持窗口运行。脚本会开启 PC 蓝牙。
-2. 拔掉手柄 USB，长按 USB-C 旁的 SYNC 小键，直到指示灯循环闪烁。
-3. 窗口出现 CONNECTED 后，手柄作为 Xbox 360 / XInput 设备供游戏使用。
-4. 退出 PC 模式：在窗口按 Ctrl+C，然后关闭窗口。
-5. 回 NS2：按 HOME，按原来的方式连接主机，无需重新配对。
-
-避免误唤醒
-进入 PC 模式用 SYNC。不要用 HOME 启动 PC 模式：手柄离线时，HOME
-仍保留唤醒原来 NS2 的用途。PC 软件无法撤回已经由手柄发出的唤醒广播。
-本次已实测 SYNC 连 PC 时 NS2 保持休眠，退出后 HOME 可直接回连 NS2。
-这是上述操作流程的测试结果，不代表所有固件、断线情形或按键操作均已验证。
-
-本地验证（2026-10-16）
-- 手柄 USB VID/PID：057E:2069；Windows 11；Intel 蓝牙支持 BLE。
-- 不写入配对资料的 BLE 连接成功；现有 NS2 配对可继续使用。
-- 读取了手柄摇杆校准数据；使用电脑已有的 ViGEmBus 驱动。
-- Windows 识别新增的虚拟 Xbox 360 手柄，按键输入进入桥接程序。
-- 请求 ThroughputOptimized 后，本次连接约 67 份输入报告/秒。
-- 用户确认：连接 PC 期间 NS2 未被唤醒；退出后可直接唤醒并操作 NS2。
-
-当前原型范围
-支持双摇杆、十字键、ABXY、L/R、ZL/ZR、加减、摇杆按下。
-ABXY 按字母映射：手柄 A -> Xbox A，B -> B，X -> X，Y -> Y。
-修改映射后，关闭正在运行的脚本窗口，再双击桌面快捷方式即可生效。
-暂未接入震动、陀螺仪、耳机音频、GL/GR/C/HOME/Capture 的游戏映射。
-程序只接受这只手柄在 SYNC 模式下的发现广播，不接管它发往 NS2 的重连。
-程序只有校准数据读取命令和输入通知订阅，不发送配对、刷写或唤醒主机命令。
-如果蓝牙断开，程序会释放虚拟手柄输入并等待你再次长按 SYNC。
-现有另一个 Xbox 手柄可能占用玩家 1；有些游戏需在游戏内选择本手柄。
-
-文件
-Start-PC.cmd：双击启动入口。
-tools/pc_bridge.py：BLE 到 XInput 桥接。
-tools/probe_connection.py：限时连接诊断，不输出虚拟游戏输入。
-tools/scan_controller.py：仅被动观察这类手柄的广播。
-research/connection-probe.json、bridge-last-session.json：实际连接记录。
-.venv：本项目独立的 Python 依赖环境。
-
-协议资料与现有项目
-https://github.com/ndeadly/switch2_controller_research
-https://github.com/TommyWabg/Switch2Connect
-https://github.com/CareyScott/switch2controllerpc
-https://github.com/yannbouteiller/vgamepad
-
-本次无线连接与桥接使用公开协议及本机实测，没有调用 REA。
-REA 下载包仍在 rea 目录；其运行依赖尚未完整安装。
+联系与反馈：945558278@qq.com

@@ -53,6 +53,7 @@ Name: "{autoprograms}\{#AppDisplayName}"; Filename: "{app}\NS2Pro.exe"; WorkingD
 Name: "{autodesktop}\{#AppDisplayName}"; Filename: "{app}\NS2Pro.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [InstallDelete]
+#include "obsolete-files.iss"
 Type: files; Name: "{autoprograms}\NS2 Pro.lnk"
 Type: files; Name: "{autodesktop}\NS2 Pro 无线连接 PC.lnk"
 

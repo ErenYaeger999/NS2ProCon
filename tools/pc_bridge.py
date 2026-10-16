@@ -214,7 +214,7 @@ async def main(args):
         ready = asyncio.get_running_loop().create_future()
 
         def found(device, advertisement):
-            if device.address.lower() != args.address.lower():
+            if args.address and device.address.lower() != args.address.lower():
                 return
             payload = advertisement.manufacturer_data.get(0x0553)
             decoded = decode_pro_advertisement(payload) if payload else None
@@ -238,7 +238,7 @@ async def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--address", required=True)
+    parser.add_argument("--address", help="Optional controller address; otherwise discover the first Pro controller in SYNC mode")
     parser.add_argument("--duration", type=float, default=0, help="Stop after N connected seconds; 0 keeps running")
     parser.add_argument("--wait", type=float, default=0, help="Discovery timeout; 0 keeps waiting")
     args = parser.parse_args()

@@ -4,6 +4,6 @@ cd /d "%~dp0"
 title NS2Pro手柄PC连接器 - 诊断后备
 "%~dp0.venv\Scripts\python.exe" "%~dp0tools\bluetooth_radio.py" --enable
 if errorlevel 1 goto done
-"%~dp0.venv\Scripts\python.exe" "%~dp0tools\pc_bridge.py" --address BC:89:A6:5C:7A:32
+"%~dp0.venv\Scripts\python.exe" "%~dp0tools\pc_bridge.py" %*
 :done
 pause

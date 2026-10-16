@@ -1,8 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 — 2026-10-17
 
-- 将 Windows App SDK 总包改为 WinUI 与必要交互组件的引用，保留原组件版本和自包含运行环境；不再随包带入未使用的 AI、ML、Search、Widgets、DWrite 组件，完整目录由约 237.5 MiB 减至 177.0 MiB。
+- 首次公开发布，提供 Windows x64 安装版、便携版与 SHA-256 校验；升级时清理已移除的旧 SDK 组件，旧控制台后备入口改为发现用户自己的手柄。
+- 将 Windows App SDK 总包改为 WinUI 与必要交互组件的引用，保留原组件版本和自包含运行环境；不再随包带入未使用的 AI、ML、Search、Widgets、DWrite 组件，完整目录由约 237.5 MiB 减至 177.1 MiB。
 - 发布检查拒绝混入旧版未使用组件，并记录目录字节数；新增 `build-release.ps1 -SkipPackaging`，可补齐离线驱动、许可和校验而不生成安装包或 ZIP。
 - README 重整为功能、安装与系统要求、使用方法、空间占用、开发和来源致谢，明确协议资料、参考实现与随包组件的来源。
 - 分别保留 ViGEmClient 上游与 vgamepad 分发包的 MIT 许可及作者署名，并加入发布完整性检查。
