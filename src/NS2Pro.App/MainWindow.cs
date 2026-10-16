@@ -91,9 +91,7 @@ public sealed partial class MainWindow : Window
         navigation.IsSettingsVisible = false;
         navigation.IsTitleBarAutoPaddingEnabled = false;
         navigation.PaneHeader = Brand();
-        var quit = new Button { Content = "退出应用", FontSize = 11, Padding = new(10, 5, 10, 5) };
-        quit.Click += async (_, _) => await ExitAsync();
-        navigation.PaneFooter = new StackPanel { Margin = new(20, 0, 0, 20), Spacing = 10, Children = { ContactEntry(), quit, Text($"v{AppVersion}", 11, false, "767676") } };
+        ConfigureSidebarFooter();
         AddNavigation("连接总览", "overview", "\uE701");
         AddNavigation("连接指南", "setup", "\uE897");
         AddNavigation("手柄测试", "test", "\uE7FC");

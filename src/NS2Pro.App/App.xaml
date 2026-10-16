@@ -21,6 +21,19 @@
                     <SolidColorBrush x:Key="AccentTextFillColorTertiaryBrush" Color="#D00010" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
+            <!-- Non-interactive metadata stays below native footer action rows. -->
+            <Style x:Key="SidebarMetadataStyle" TargetType="NavigationViewItemHeader">
+                <Setter Property="IsEnabled" Value="False" />
+                <Setter Property="IsTabStop" Value="False" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="NavigationViewItemHeader">
+                            <ContentPresenter Content="{TemplateBinding Content}" HorizontalContentAlignment="Stretch" />
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

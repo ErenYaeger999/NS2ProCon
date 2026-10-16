@@ -4,7 +4,7 @@
 
 ## 使用
 
-优先使用安装包 `artifacts/release/NS2Pro-0.5.0-win-x64-setup.exe`。安装过程离线补齐缺失的官方 ViGEmBus 驱动，创建开始菜单和桌面入口。日常使用无需管理员权限。
+优先使用安装包 `artifacts/release/NS2Pro-0.5.1-win-x64-setup.exe`。安装过程离线补齐缺失的官方 ViGEmBus 驱动，创建开始菜单和桌面入口。日常使用无需管理员权限。
 
 首次启动进入「连接指南」：检查 Windows、蓝牙与驱动，拔掉 USB，点击开始连接，再长按手柄顶部 SYNC，直到指示灯循环闪烁；收到真实输入后记住首次连接已完成。之后默认进入连接总览，仍可随时回到指南。无需在 Windows 蓝牙设置中手动配对。
 
@@ -14,7 +14,7 @@
 - **按键映射**：Nintendo 布局（默认，A→A）和 Xbox 布局（按位置，A→B），配 ABXY 示意图；切换即时生效。支持 0–30% 摇杆死区。
 - **设置与诊断**：托盘常驻、启动后等待手柄、指定蓝牙地址、运行环境检查、日志与诊断复制。
 
-左下角「联系作者」显示 `945558278@qq.com`，可复制邮箱或打开邮件客户端；不会自动发送诊断数据。
+侧栏底部统一提供「联系与反馈」「退出应用」图文入口，下方为应用名与版本。「联系与反馈」显示 `945558278@qq.com`，可选中或复制邮箱，也可打开邮件客户端；不会自动发送诊断数据。打开联系面板不会切换当前页面；「退出应用」会结束 PC 连接并完全退出。
 
 运行时右下角系统托盘显示应用图标，右键可连接手柄（之后长按 SYNC）、取消等待、断开 PC 或退出，菜单随连接状态更新。Windows 可能把图标收在「^」溢出区，可从那里拖到任务栏常驻；应用不会修改系统的图标显示偏好。关闭窗口后默认留在托盘，连接继续运行，也可在设置中关闭托盘常驻。
 
@@ -55,7 +55,7 @@
 
 发布脚本固定驱动和编译器版本、SHA-256，并检查厂商数字签名；编译器通过已签名的 NuGet 工具包解压使用，不安装到系统。安装程序由 Inno Setup 6.7.3 构建，中文翻译来自其官方仓库的 `Files/Languages/ChineseSimplified.isl`，保留译者署名。驱动来源和摘要位于 `installer/prerequisites.json`，工具链位于 `installer/toolchain.json`。
 
-`scripts/check-release.ps1 -PublishDirectory artifacts/NS2Pro-v0.5.0-release` 检查运行库、PRI 和图标资源、厂商安装器签名、版本和全文件哈希；结果位于 `artifacts/release/NS2Pro-0.5.0-check-report.json`。`tools/audit_pe_imports.py` 使用 Python 标准库静态读取普通及延迟导入表，不加载或执行被检查的 DLL。构建安装包的开发电脑需要 Python 3 运行此审计；用户电脑无需 Python。
+`scripts/check-release.ps1 -PublishDirectory artifacts/NS2Pro-v0.5.1-release` 检查运行库、PRI 和图标资源、厂商安装器签名、版本和全文件哈希；结果位于 `artifacts/release/NS2Pro-0.5.1-check-report.json`。`tools/audit_pe_imports.py` 使用 Python 标准库静态读取普通及延迟导入表，不加载或执行被检查的 DLL。构建安装包的开发电脑需要 Python 3 运行此审计；用户电脑无需 Python。
 
 发布前仍需在干净 Windows 10 / Windows 11 x64 电脑验证首次安装、无驱动安装、重启、首次蓝牙连接和卸载。目前本机已有 ViGEmBus，不能以本机通过代替这部分验证；不声明已在其他蓝牙芯片、Windows 10、ARM64 或精简系统实测通过。程序和安装包尚未配置发行者代码签名，首次下载运行可能被 Windows SmartScreen 提示；正式广泛分发前应配置签名。
 
@@ -75,6 +75,7 @@
 - `v0.3.1`：手柄模型加减号改用清晰的填充式矢量符号。
 - `v0.4.0`：红白主题与统一手柄图标，小尺寸图标单独优化。
 - `v0.5.0`：扳机和背键图示、底部两行居中、HOME 提醒、充电状态与托盘快捷连接。
+- `v0.5.1`：统一侧栏底部操作与版本信息，完善联系面板与退出反馈。
 
 旧版脚本 `Start-PC.cmd` 保留为诊断后备，不要与原生应用同时连接同一只手柄。
 
