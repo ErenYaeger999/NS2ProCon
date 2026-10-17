@@ -8,5 +8,7 @@
   <ItemGroup><Compile Include="..\..\src\NS2Pro.App\Services\IGameOutput.cs" Link="IGameOutput.cs" /></ItemGroup>
   <ItemGroup><Compile Include="..\..\src\NS2Pro.App\Services\ViiperGamepad.cs" Link="ViiperGamepad.cs" /></ItemGroup>
   <ItemGroup><Compile Include="..\..\src\NS2Pro.App\Services\UpdateService.cs" Link="UpdateService.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="..\..\src\NS2Pro.App\Services\EnhancementComponents.cs" Link="EnhancementComponents.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="..\..\src\NS2Pro.App\Services\EnhancementStatus.cs" Link="EnhancementStatus.cs" /></ItemGroup>
   <ItemGroup><Content Include="..\..\third_party\vigem\ViGEmClient.dll" Link="ViGEmClient.dll" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
 </Project>

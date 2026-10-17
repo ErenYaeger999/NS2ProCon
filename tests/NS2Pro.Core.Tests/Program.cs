@@ -138,4 +138,5 @@ if (OperatingSystem.IsWindows()) passed += SingleInstanceChecks.Run();
 passed += await HapticChecks.RunAsync();
 passed += await NativeHapticChecks.RunAsync();
 passed += await UpdateChecks.RunAsync();
+passed += await EnhancementChecks.RunAsync();
 Console.WriteLine($"PASS: {passed} protocol, settings, haptics, updates and single-instance checks.");

@@ -9,7 +9,7 @@ using Windows.Storage.Streams;
 
 namespace NS2Pro.App.Services;
 
-public sealed class ControllerService(AppSettings settings)
+public sealed class ControllerService(AppSettings settings, EnhancementService enhancement)
 {
     public static readonly Guid InputUuid = new("7492866c-ec3e-4619-8258-32755ffcc0f8");
     private static readonly Guid ServiceUuid = new("ab7de9be-89fe-49ad-828f-118f09df7fd0");
@@ -25,6 +25,8 @@ public sealed class ControllerService(AppSettings settings)
     private volatile bool systemSuspended;
     private GameOutputMode activeOutputMode;
     public string OutputName => activeOutputMode == GameOutputMode.DualSenseExperimental ? "DualSense · 实验性触觉" : "Xbox 360 / XInput";
+    private long nativeHapticAt;
+    public bool ReceivingNativeHaptics => Interlocked.Read(ref nativeHapticAt) is long at && at != 0 && Stopwatch.GetElapsedTime(at).TotalSeconds < 1;
     public ConnectionInfo Info => info;
     public ControllerInput? Input => input;
     public HapticStatus Haptics => haptics?.Status ?? new(false, settings.RumbleEnabled, false, false,
@@ -55,6 +57,7 @@ public sealed class ControllerService(AppSettings settings)
             cancellation?.Dispose();
             cancellation = new();
             activeOutputMode = settings.OutputMode;
+            Publish(ConnectionPhase.Preparing, "正在准备连接…");
             running = Task.Run(() => RunAsync(cancellation.Token));
         } finally { lifecycle.Release(); }
     }
@@ -98,7 +101,8 @@ public sealed class ControllerService(AppSettings settings)
             AppLog.Write("info", await CheckBluetoothAsync(true));
             // Verify the installed driver without retaining a virtual device while scanning.
             if (activeOutputMode == GameOutputMode.Xbox) VirtualGamepad.EnsureDriverAvailable();
-            else AppLog.Write("info", await ViiperGamepad.ProbeAsync(settings.ViiperPort, token));
+            else if (!await enhancement.PrepareAsync(settings, token: token))
+                throw new IOException(enhancement.Status.Message + " 请到设置中的游戏模式继续准备，或使用通用兼容模式。");
             bool reconnecting = false;
             while (!token.IsCancellationRequested) {
                 Publish(ConnectionPhase.Searching, reconnecting ? "连接已断开，请长按顶部 SYNC 重新连接" : "长按手柄顶部 SYNC，直到指示灯循环闪烁");
@@ -162,8 +166,13 @@ public sealed class ControllerService(AppSettings settings)
         var reportCharacteristic = Find(InputUuid);
         var calibration = await ReadCalibrationsAsync(command, response, token);
         using IGameOutput output = activeOutputMode == GameOutputMode.Xbox ? new VirtualGamepad() :
-            await ViiperGamepad.CreateAsync(settings.ViiperPort, token);
+            await ViiperGamepad.CreateAsync(EnhancementService.Port(settings), token);
         HapticSession? rumble = null;
+        Interlocked.Exchange(ref nativeHapticAt, 0);
+        void NativeFeedback(HapticFrame frame) {
+            if (!frame.IsSilent) Interlocked.Exchange(ref nativeHapticAt, Stopwatch.GetTimestamp());
+            rumble?.SubmitRich(frame);
+        }
         var vibration = characteristics.Characteristics.FirstOrDefault(x => x.Uuid == HapticProtocol.BluetoothUuid);
         if (vibration is not null && output.FeedbackAvailable &&
             vibration.CharacteristicProperties.HasFlag(GattCharacteristicProperties.WriteWithoutResponse)) {
@@ -174,7 +183,7 @@ public sealed class ControllerService(AppSettings settings)
             }, settings.RumbleEnabled, settings.RumbleStrength, text => AppLog.Write("warn", text));
             haptics = rumble;
             output.RumbleChanged += rumble.SubmitXbox;
-            if (output is ViiperGamepad native) native.NativeHaptics += rumble.SubmitRich;
+            if (output is ViiperGamepad native) native.NativeHaptics += NativeFeedback;
             AppLog.Write("info", "游戏震动反馈已注册 · 独立 BLE 写入 · 保留主机配对");
         } else {
             hapticMessage = vibration is null ? "手柄未提供震动通道，按键连接可继续使用" :
@@ -253,12 +262,13 @@ public sealed class ControllerService(AppSettings settings)
             reportCharacteristic.ValueChanged -= Received;
             if (rumble is not null) {
                 output.RumbleChanged -= rumble.SubmitXbox;
-                if (output is ViiperGamepad native) native.NativeHaptics -= rumble.SubmitRich;
+                if (output is ViiperGamepad native) native.NativeHaptics -= NativeFeedback;
                 await rumble.DisposeAsync(); // bounded final stop while GATT/session are still alive
                 var statistics = rumble.Status;
                 AppLog.Write("info", $"本次震动：反馈 {statistics.Feedback} 次 · 写入 {statistics.Writes} 次 · 合并 {statistics.Coalesced} 次 · 最慢写入 {statistics.MaxWriteMilliseconds:F1} ms");
             }
             haptics = null; hapticMessage = "连接手柄后可测试震动";
+            Interlocked.Exchange(ref nativeHapticAt, 0);
             try { await reportCharacteristic.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.None).AsTask().WaitAsync(TimeSpan.FromSeconds(2)); }
             catch (Exception) { }
             if (session is not null) session.MaintainConnection = false;

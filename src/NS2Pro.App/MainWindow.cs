@@ -17,6 +17,7 @@ public sealed partial class MainWindow : Window
 {
     private static readonly string AppVersion = typeof(MainWindow).Assembly.GetName().Version!.ToString(3);
     private readonly AppSettings settings = AppSettings.Load();
+    private readonly EnhancementService enhancement = new(HapticEnvironmentProbe.VerifyAsync);
     private readonly ControllerService controller;
     private readonly NavigationView navigation = new();
     private StackPanel page = new() { Spacing = 22 };
@@ -64,10 +65,13 @@ public sealed partial class MainWindow : Window
     private TextBox? addressEditor;
     private bool addressDirty, updatingAddress;
     private bool hadLiveInput;
+    private bool startingConnection;
+    private string? enhancementFallback;
 
     public MainWindow()
     {
-        controller = new(settings);
+        wantsEnhanced = settings.PreferNativeHaptics || settings.OutputMode == GameOutputMode.DualSenseExperimental;
+        controller = new(settings, enhancement);
         Title = App.WindowTitle;
         ExtendsContentIntoTitleBar = true;
         if (Microsoft.UI.Composition.SystemBackdrops.MicaController.IsSupported()) SystemBackdrop = new MicaBackdrop();
@@ -113,9 +117,9 @@ public sealed partial class MainWindow : Window
         content.RowDefinitions.Add(new() { Height = GridLength.Auto }); content.RowDefinitions.Add(new() { Height = new(1, GridUnitType.Star) });
         var heading = new StackPanel { Spacing = 5, Margin = new(0, 0, 0, 24), Children = { title, subtitle } };
         if (settings.ShouldShowConnectionNotice) {
-            var notice = new InfoBar { IsOpen = true, IsClosable = true, Severity = InfoBarSeverity.Warning,
-                Title = "连接 PC 时请勿按 HOME",
-                Message = "HOME 会唤醒 NS2，请用顶部 SYNC 连接 PC。连接成功后，手柄指示灯持续闪烁属于正常现象。",
+            var notice = new InfoBar { IsOpen = true, IsClosable = true, Severity = InfoBarSeverity.Informational,
+                Title = "连接小提示",
+                Message = "连接成功后，手柄指示灯持续闪烁属于正常现象。回到 NS2 时，先断开 PC 连接，再按 HOME。",
                 Margin = new(0, 12, 24, 0), HorizontalAlignment = HorizontalAlignment.Stretch };
             bool dismissedThisRun = false;
             notice.Closed += (_, args) => {
@@ -153,7 +157,8 @@ public sealed partial class MainWindow : Window
             settings.HasSeenConnectionGuide = true; SaveSettings();
             SelectPage(showGuide ? "setup" : "overview");
             AppLog.Write("info", $"{AppIdentity.DisplayName} v{AppVersion} 已启动 · WinUI 3");
-            if (settings.AutoStartConnection && !AppSettings.IsPreview) _ = controller.StartAsync();
+            AppLog.Write("info", "运行位置：" + AppContext.BaseDirectory);
+            if (settings.AutoStartConnection && !AppSettings.IsPreview) _ = SetTrayConnectionAsync(true);
             _ = CheckUpdatesAsync();
         };
     }
@@ -196,7 +201,10 @@ public sealed partial class MainWindow : Window
         public readonly TextBlock xboxButtons = Text("—", 12);
         public readonly TextBox logBox = new() { IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 190, MaxHeight = 260, FontFamily = new("Cascadia Mono"), FontSize = 11 };
         public readonly Button connectButton = new() { Content = "连接手柄", HorizontalAlignment = HorizontalAlignment.Stretch, Height = 44 };
-        public readonly List<TextBlock> MappingLabels = new();
+        public readonly Dictionary<ButtonLayout, RadioButton> layoutOptions = new();
+        public readonly Dictionary<ButtonLayout, Border> layoutCards = new();
+        public readonly TextBlock gameModeTitle = Text("通用兼容模式", 13, true);
+        public readonly TextBlock gameModeHelp = Text("支持原生触觉的游戏，可到设置中试用增强模式。", 12, false, AppPalette.Muted);
     }
     private sealed record CachedPage(StackPanel Content, LiveControls Live, string Title, string Subtitle);
     private void WireLiveControls()
@@ -251,25 +259,27 @@ public sealed partial class MainWindow : Window
         var hero = new StackPanel { Spacing = 8 };
         var heroHeader = new Grid(); heroHeader.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); heroHeader.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         heroHeader.Children.Add(Text("你的手柄", 12, true, AppPalette.Muted));
-        Grid.SetColumn(badge, 1); heroHeader.Children.Add(badge); hero.Children.Add(heroHeader);
+        var statusBadge = SyncHint.ForText(badge);
+        Grid.SetColumn(statusBadge, 1); heroHeader.Children.Add(statusBadge); hero.Children.Add(heroHeader);
         hero.Children.Add(Text("Switch 2 Pro Controller", 23, true)); hero.Children.Add(addressText);
-        hero.Children.Add(controllerView); hero.Children.Add(statusText);
+        hero.Children.Add(controllerView); hero.Children.Add(SyncHint.ForText(statusText));
         var actions = new StackPanel { Spacing = 15 };
         actions.Children.Add(Text("无线连接", 18, true));
-        actions.Children.Add(live.connectionHint);
+        actions.Children.Add(SyncHint.ForText(live.connectionHint));
         actions.Children.Add(connectButton);
         actions.Children.Add(new Border { Height = 1, Background = Brush("EEEEEE"), Margin = new(0, 5, 0, 3) });
         actions.Children.Add(Text("保留 NS2 配对", 13, true));
         actions.Children.Add(Text("回 NS2：先断开 PC，再按 HOME。", 12, false, AppPalette.Muted));
+        actions.Children.Add(new Border { Height = 1, Background = Brush("EEEEEE"), Margin = new(0, 5, 0, 3) });
+        actions.Children.Add(live.gameModeTitle); actions.Children.Add(live.gameModeHelp);
+        var modeSettings = new HyperlinkButton { Content = "设置游戏模式", Padding = new(0), HorizontalAlignment = HorizontalAlignment.Left };
+        modeSettings.Click += (_, _) => OpenEnhancementSettings(); actions.Children.Add(modeSettings);
         page.Children.Add(Columns(Card(hero, 24), Card(actions, 23), 1.8, 1));
         var battery = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 13 };
         live.batteryIcon.VerticalAlignment = VerticalAlignment.Center;
         battery.Children.Add(live.batteryIcon); battery.Children.Add(new StackPanel { Spacing = 2, Children = { batteryText, live.batteryState } });
         page.Children.Add(Columns(Metric("输入频率", hzText), Metric("手柄电量", battery), 1, 1));
-        var preset = new StackPanel { Spacing = 12, Children = { Text("当前映射", 14, true), MappingPreview() } };
-        var edit = new Button { Content = "更改预设", HorizontalAlignment = HorizontalAlignment.Right };
-        edit.Click += (_, _) => SelectPage("mapping"); preset.Children.Add(edit);
-        page.Children.Add(Card(preset, 20));
+        page.Children.Add(Card(MappingPreview(), 16));
         page.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new(3, 0, 0, 2),
             Children = { live.outputDot, live.outputStatus } });
     }
@@ -277,7 +287,7 @@ public sealed partial class MainWindow : Window
     private void BuildTestPage()
     {
         title.Text = "手柄测试"; subtitle.Text = "每一次按下，都看得见。";
-        var instructions = new StackPanel { Spacing = 14, Children = { Text("输入状态", 14, true), badge, statusText, connectButton,
+        var instructions = new StackPanel { Spacing = 14, Children = { Text("输入状态", 14, true), SyncHint.ForText(badge), SyncHint.ForText(statusText), connectButton,
             Text("先在本应用连接手柄，再按键或拨动摇杆，检测会自动开始。其他连接工具应先断开这只手柄。", 12, false, AppPalette.Muted),
             Text("游戏输入 · Xbox 键名", 12, true), xboxButtons } };
         var model = new StackPanel { Spacing = 8, Children = { controllerView,
@@ -319,20 +329,21 @@ public sealed partial class MainWindow : Window
     private void BuildSettingsPage()
     {
         title.Text = "设置与诊断"; subtitle.Text = "保持简单，也保留需要时的排查工具。";
+        page.Children.Add(HapticBackendOptions());
+        page.Children.Add(RumbleSettingsCard());
         var behavior = new StackPanel { Spacing = 18, Children = { Text("运行方式", 17, true) } };
         var trayToggle = new ToggleSwitch { Header = "关闭窗口后继续在后台运行", OnContent = "缩至托盘，保持连接", OffContent = "关闭窗口即断开并退出", IsOn = settings.CloseToTray };
         trayToggle.Toggled += (_, _) => { settings.CloseToTray = trayToggle.IsOn; SaveSettings(); };
-        var auto = new ToggleSwitch { Header = "启动应用时开始等待手柄", OnContent = "等待 SYNC 广播", OffContent = "手动点击连接", IsOn = settings.AutoStartConnection };
+        var auto = new ToggleSwitch { Header = "启动应用时开始等待手柄", OnContent = SyncHint.ForText(Text("等待 SYNC 广播")), OffContent = "手动点击连接", IsOn = settings.AutoStartConnection };
         auto.Toggled += (_, _) => { settings.AutoStartConnection = auto.IsOn; SaveSettings(); };
         behavior.Children.Add(trayToggle); behavior.Children.Add(auto);
         behavior.Children.Add(Text("需要保持连接时，也可使用窗口的最小化按钮。后台运行开启后，可从托盘菜单完全退出。", 12, false, AppPalette.Muted));
         page.Children.Add(Card(behavior, 24));
-        page.Children.Add(RumbleSettingsCard());
-        page.Children.Add(HapticBackendOptions());
         page.Children.Add(UpdateSettingsCard());
         var advanced = new StackPanel { Spacing = 14, Children = {
             Text("应用会自动记住连接过的手柄。只有指定其他手柄或排查连接问题时才需要修改；留空可重新发现。", 12, false, AppPalette.Muted) } };
-        var target = new TextBox { Header = "指定手柄蓝牙地址", Text = settings.LastControllerAddress, PlaceholderText = "留空时连接首个处于 SYNC 的 Pro 手柄" };
+        var target = new TextBox { Header = "指定手柄蓝牙地址", Text = settings.LastControllerAddress, PlaceholderText = "留空时自动发现正在等待配对的 Pro 手柄",
+            Description = SyncHint.ForText(Text("长按 SYNC，让手柄进入配对广播状态。", 12, false, AppPalette.Muted)) };
         addressEditor = target; addressDirty = false;
         var addressStatus = Text("", 12, false, AppPalette.Muted); addressStatus.Visibility = Visibility.Collapsed;
         var apply = new Button { Content = "保存手柄地址", IsEnabled = false };
@@ -404,19 +415,30 @@ public sealed partial class MainWindow : Window
     }
     private async Task BeginConnectionAsync()
     {
-        if (exiting || !controller.Info.CanStart) return;
-        if (settings.OutputMode == GameOutputMode.DualSenseExperimental) {
-            await controller.StartAsync(); return; // This backend validates its own driver/device path.
-        }
-        var report = await PrerequisiteService.CheckAsync();
-        if (exiting || !controller.Info.CanStart) return;
-        if (!report.Ready) {
-            NativeMethods.ShowExisting(WinRT.Interop.WindowNative.GetWindowHandle(this)); Activate();
-            SelectPage("setup");
-            if (connectionGuide is not null) await connectionGuide.RefreshEnvironmentAsync();
-            return;
-        }
-        await controller.StartAsync();
+        if (exiting || startingConnection || !controller.Info.CanStart) return;
+        startingConnection = true;
+        try {
+            // Pending optional setup must never block an ordinary connection.
+            if (enhancement.Status.Busy && enhancement.Status.Phase != EnhancementPhase.InstallingDriver) {
+                enhancement.Cancel(); await enhancement.WaitForIdleAsync();
+            }
+            if (settings.OutputMode == GameOutputMode.DualSenseExperimental) {
+                if (await enhancement.PrepareAsync(settings)) { await controller.StartAsync(); return; }
+                settings.OutputMode = GameOutputMode.Xbox; settings.PreferNativeHaptics = false; wantsEnhanced = false;
+                enhancementFallback = "增强暂未就绪，本次使用通用兼容。可到设置中继续准备增强环境。";
+                if (gameMode is not null) gameMode.SelectedIndex = 0;
+                SaveSettings();
+            }
+            var report = await PrerequisiteService.CheckAsync();
+            if (exiting || !controller.Info.CanStart) return;
+            if (!report.Ready) {
+                NativeMethods.ShowExisting(WinRT.Interop.WindowNative.GetWindowHandle(this)); Activate();
+                SelectPage("setup");
+                if (connectionGuide is not null) await connectionGuide.RefreshEnvironmentAsync();
+                return;
+            }
+            await controller.StartAsync();
+        } finally { startingConnection = false; lastEnhancementStatus = null; UpdateEnhancementUi(); UpdateOverviewModeHint(); }
     }
     private async Task SetTrayConnectionAsync(bool connect)
     {
@@ -435,7 +457,8 @@ public sealed partial class MainWindow : Window
         if (selectedPage == "settings") RefreshAddressEditor();
         connectionGuide?.Update(info, controller.Input);
         if (pageFailed || !cachedPages.ContainsKey(selectedPage)) return;
-        UpdateMappingLabels();
+        UpdateMappingSummary();
+        UpdateOverviewModeHint();
         badge.Text = info.Phase switch { ConnectionPhase.Connected => "● 已连接", ConnectionPhase.WaitingForInput => "● 等待输入", ConnectionPhase.Searching => "● 等待 SYNC", ConnectionPhase.Connecting => "● 连接中", ConnectionPhase.Preparing => "● 正在准备", ConnectionPhase.Stopping => "● 正在断开", ConnectionPhase.Error => "● 连接未完成", _ => "○ 未连接" };
         badge.Foreground = Brush(info.Phase == ConnectionPhase.Connected ? AppPalette.AccentText : info.Phase is ConnectionPhase.Error or ConnectionPhase.WaitingForInput ? "AC6635" : AppPalette.Muted);
         statusText.Text = info.Message;
@@ -467,6 +490,7 @@ public sealed partial class MainWindow : Window
     private void UpdateLiveInput()
     {
         UpdateRumbleStatus();
+        UpdateEnhancementUi();
         bool hasInput = controller.Input is not null;
         if (!hasInput && hadLiveInput) {
             foreach (var cached in cachedPages.Values) { cached.Live.leftPlot.Clear(); cached.Live.rightPlot.Clear(); }
@@ -511,16 +535,28 @@ public sealed partial class MainWindow : Window
         if (input.LeftTrigger > 0) pressed.Add("LT"); if (input.RightTrigger > 0) pressed.Add("RT");
         return pressed.Count == 0 ? "未按下按键" : string.Join("  ·  ", pressed);
     }
-    private void ChangeLayout(ButtonLayout layout) { settings.Layout = layout; SaveSettings(); AppLog.Write("info", "映射预设：" + (layout == ButtonLayout.Labels ? "Nintendo 布局 · 字母对应" : "Xbox 布局 · 位置对应")); }
+    private void ChangeLayout(ButtonLayout layout)
+    {
+        if (settings.Layout == layout) return;
+        settings.Layout = layout; SaveSettings(); UpdateMappingSummary();
+        AppLog.Write("info", "映射预设：" + (layout == ButtonLayout.Labels ? "Nintendo 布局 · 字母对应" : "Xbox 布局 · 位置对应"));
+    }
     private void SaveSettings() { try { settings.Save(); } catch (Exception error) { AppLog.Write("error", "保存设置失败：" + error.Message); } }
     private void SelectPage(string tag) => navigation.SelectedItem = navigation.MenuItems.Concat(navigation.FooterMenuItems)
         .OfType<NavigationViewItem>().First(x => Equals(x.Tag, tag));
     private void LogWritten(string line) => DispatcherQueue.TryEnqueue(() => { logLines.Enqueue(line); while (logLines.Count > 80) logLines.Dequeue(); if (selectedPage == "settings") logBox.Text = string.Join(Environment.NewLine, logLines); });
-    private async Task ShowInfoAsync(string heading, string description) => await new ContentDialog { Title = heading, Content = description, CloseButtonText = "知道了", XamlRoot = ((FrameworkElement)Content).XamlRoot }.ShowAsync();
+    private async Task ShowInfoAsync(string heading, string description) => await new ContentDialog { Title = heading,
+        Content = description.Contains("SYNC", StringComparison.OrdinalIgnoreCase) ? (object)SyncHint.ForText(Text(description)) : description,
+        CloseButtonText = "知道了", XamlRoot = ((FrameworkElement)Content).XamlRoot }.ShowAsync();
     private async Task ExitAsync()
     {
-        if (exiting) return; exiting = true;
-        try { await controller.StopAsync(); timer.Stop(); tray?.Dispose(); exitAllowed = true; Close(); }
+        if (exiting) return;
+        if (enhancement.Status.Phase == EnhancementPhase.InstallingDriver) {
+            OpenEnhancementSettings();
+            await ShowInfoAsync("增强驱动正在安装", "请等待官方安装器完成后再退出，以便确认安装结果。电脑不会自动重启。"); return;
+        }
+        exiting = true;
+        try { enhancement.Cancel(); await controller.StopAsync(); await enhancement.DisposeAsync(); timer.Stop(); tray?.Dispose(); exitAllowed = true; Close(); }
         catch (Exception error) {
             exiting = exitAllowed = false;
             NativeMethods.ShowExisting(WinRT.Interop.WindowNative.GetWindowHandle(this)); Activate();
@@ -532,11 +568,11 @@ public sealed partial class MainWindow : Window
     private Border LayoutCard(ButtonLayout layout)
     {
         bool nintendo = layout == ButtonLayout.Labels;
-        var choice = new RadioButton { Content = nintendo ? "Nintendo 布局" : "Xbox 布局", GroupName = "Layout", IsChecked = settings.Layout == layout, FontSize = 18 };
+        var choice = new RadioButton { Content = nintendo ? "Nintendo 布局" : "Xbox 布局", GroupName = "LayoutMapping", IsChecked = settings.Layout == layout, FontSize = 18 };
+        live.layoutOptions.Add(layout, choice);
         AutomationProperties.SetName(choice, nintendo ? "Nintendo 布局，字母对应，A 对应 A" : "Xbox 布局，位置对应，A 对应 B");
         var content = new StackPanel { Spacing = 15, Children = { choice,
-            Text(nintendo ? "字母对应" : "位置对应", 12, true, AppPalette.AccentText),
-            Text(nintendo ? "游戏提示 A，对应手柄 A。" : "保持 Xbox 的 ABXY 按键位置。", 13, false, AppPalette.Muted) } };
+            Text(nintendo ? "字母对应" : "位置对应", 12, true, AppPalette.AccentText) } };
         var diagrams = new Grid { ColumnSpacing = 6 };
         diagrams.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
         diagrams.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
@@ -545,12 +581,11 @@ public sealed partial class MainWindow : Window
         var arrow = Text("→", 22, false, "767676"); arrow.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(arrow, 1); diagrams.Children.Add(arrow);
         var output = ButtonDiamond(!nintendo, "游戏输出"); Grid.SetColumn(output, 2); diagrams.Children.Add(output);
         content.Children.Add(diagrams);
-        content.Children.Add(Text(nintendo ? "A → A   B → B   X → X   Y → Y" : "A → B   B → A   X → Y   Y → X", 12, true, "565656"));
         var card = Card(content, 22);
+        live.layoutCards.Add(layout, card);
         card.BorderBrush = Brush(settings.Layout == layout ? AppPalette.Accent : AppPalette.Border);
         card.Background = Brush(settings.Layout == layout ? AppPalette.Soft : "FFFFFF");
-        choice.Checked += (_, _) => { card.BorderBrush = Brush(AppPalette.Accent); card.Background = Brush(AppPalette.Soft); ChangeLayout(layout); };
-        choice.Unchecked += (_, _) => { card.BorderBrush = Brush(AppPalette.Border); card.Background = Brush("FFFFFF"); };
+        choice.Checked += (_, _) => ChangeLayout(layout);
         card.Tapped += (_, _) => choice.IsChecked = true;
         return card;
     }
@@ -607,19 +642,49 @@ public sealed partial class MainWindow : Window
         return new Viewbox { Width = 44, Height = 40, Child = canvas, VerticalAlignment = VerticalAlignment.Center };
     }
 
-    private void UpdateMappingLabels()
+    private void UpdateMappingSummary()
     {
-        var labels = settings.Layout == ButtonLayout.Labels ? new[] { "A → A", "B → B", "X → X", "Y → Y" } : new[] { "A → B", "B → A", "X → Y", "Y → X" };
-        foreach (var cached in cachedPages.Values) for (int i = 0; i < cached.Live.MappingLabels.Count; i++) cached.Live.MappingLabels[i].Text = labels[i];
-    }
-    private StackPanel MappingPreview()
-    {
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
-        var maps = settings.Layout == ButtonLayout.Labels ? new[] { "A → A", "B → B", "X → X", "Y → Y" } : new[] { "A → B", "B → A", "X → Y", "Y → X" };
-        foreach (var text in maps) {
-            var label = Text(text, 13, true, AppPalette.AccentText); live.MappingLabels.Add(label);
-            row.Children.Add(new Border { Padding = new(16, 9, 16, 9), CornerRadius = new(9), Background = Brush(AppPalette.Soft), Child = label });
+        foreach (var cached in cachedPages.Values) {
+            foreach (var (layout, option) in cached.Live.layoutOptions) option.IsChecked = settings.Layout == layout;
+            foreach (var (layout, card) in cached.Live.layoutCards) {
+                bool selected = settings.Layout == layout;
+                card.BorderBrush = Brush(selected ? AppPalette.Accent : AppPalette.Border);
+                card.Background = Brush(selected ? AppPalette.Soft : "FFFFFF");
+            }
         }
+    }
+    private Grid MappingPreview()
+    {
+        var row = new Grid { ColumnSpacing = 20 };
+        row.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        var label = Text("当前映射", 14, true); label.VerticalAlignment = VerticalAlignment.Center; row.Children.Add(label);
+        var choices = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+        foreach (var layout in new[] { ButtonLayout.Labels, ButtonLayout.Positions }) {
+            bool nintendo = layout == ButtonLayout.Labels;
+            var option = new RadioButton { Content = nintendo ? "Nintendo 布局" : "Xbox 布局", GroupName = "LayoutOverview",
+                Style = (Style)Application.Current.Resources["LayoutPresetOptionStyle"], IsChecked = settings.Layout == layout };
+            AutomationProperties.SetName(option, nintendo ? "Nintendo 布局，字母对应" : "Xbox 布局，位置对应");
+            ToolTipService.SetToolTip(option, nintendo ? "按键字母对应" : "按键位置对应");
+            option.Checked += (_, _) => ChangeLayout(layout);
+            live.layoutOptions.Add(layout, option); choices.Children.Add(option);
+        }
+        var group = new Border { Background = Brush("F6F6F6"), CornerRadius = new(12), Padding = new(4), Child = choices };
+        Grid.SetColumn(group, 1); row.Children.Add(group);
+        bool? stacked = null;
+        row.SizeChanged += (_, args) => {
+            bool narrow = args.NewSize.Width < 370;
+            if (stacked == narrow) return;
+            stacked = narrow; row.RowDefinitions.Clear();
+            if (narrow) {
+                row.RowDefinitions.Add(new() { Height = GridLength.Auto }); row.RowDefinitions.Add(new() { Height = GridLength.Auto });
+                Grid.SetColumnSpan(label, 2); Grid.SetColumn(group, 0); Grid.SetColumnSpan(group, 2); Grid.SetRow(group, 1);
+                row.RowSpacing = 12; group.HorizontalAlignment = HorizontalAlignment.Left;
+            } else {
+                Grid.SetColumnSpan(label, 1); Grid.SetColumnSpan(group, 1); Grid.SetRow(group, 0); Grid.SetColumn(group, 1);
+                row.RowSpacing = 0; group.HorizontalAlignment = HorizontalAlignment.Right;
+            }
+        };
         return row;
     }
     private static Border Metric(string label, FrameworkElement value) => Card(new StackPanel { Spacing = 10, Children = { Text(label, 12, false, AppPalette.Muted), value } }, 20);

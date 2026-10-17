@@ -10,6 +10,7 @@ internal static class NativeMethods
     [DllImport("user32.dll")] internal static extern bool SetForegroundWindow(IntPtr hwnd);
     [DllImport("user32.dll")] internal static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
     [DllImport("user32.dll")] internal static extern bool AllowSetForegroundWindow(uint processId);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern int MessageBox(IntPtr window, string text, string caption, uint type);
     [DllImport("user32.dll")] internal static extern uint GetDpiForWindow(IntPtr hwnd);
     [DllImport("user32.dll")] internal static extern int GetSystemMetricsForDpi(int index, uint dpi);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern IntPtr LoadImage(IntPtr instance, string name, uint type, int x, int y, uint flags);
@@ -65,8 +66,8 @@ internal sealed class TrayIcon : IDisposable
         string state = phase switch {
             ConnectionPhase.Connected => "已连接到 PC",
             ConnectionPhase.WaitingForInput => "蓝牙已连接 · 等待手柄输入",
-            ConnectionPhase.Searching => "等待 SYNC · 请勿按 HOME",
-            ConnectionPhase.Preparing or ConnectionPhase.Connecting => "正在连接 · 请勿按 HOME",
+            ConnectionPhase.Searching => "请长按手柄顶部充电口旁的小键",
+            ConnectionPhase.Preparing or ConnectionPhase.Connecting => "正在连接手柄",
             ConnectionPhase.Stopping => "正在断开",
             ConnectionPhase.Error => "连接未完成 · 右键重试",
             _ => "未连接 · 右键连接手柄"
@@ -93,7 +94,7 @@ internal sealed class TrayIcon : IDisposable
                     AppendMenu(menu, 0, 1, "打开 " + AppIdentity.DisplayName);
                     var state = new ConnectionInfo(phase, "");
                     bool active = state.CanStop;
-                    string label = phase == ConnectionPhase.Idle ? "连接手柄（长按 SYNC）" : state.ActionText;
+                    string label = phase == ConnectionPhase.Idle ? "连接手柄（长按顶部充电口旁的小键）" : state.ActionText;
                     AppendMenu(menu, AppSettings.IsPreview || phase == ConnectionPhase.Stopping ? 1u : 0u, active ? 4u : 3u, label);
                     AppendMenu(menu, 0x800, 0, "");
                     AppendMenu(menu, 0, 2, "断开并退出");

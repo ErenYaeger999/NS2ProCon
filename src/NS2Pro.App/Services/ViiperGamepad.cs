@@ -136,13 +136,13 @@ public sealed class ViiperGamepad : IGameOutput
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(TimeSpan.FromSeconds(4));
         using var client = new TcpClient { NoDelay = true };
         try {
-            await client.ConnectAsync(IPAddress.Loopback, port, timeout.Token);
+            await client.ConnectAsync(IPAddress.Loopback, port, timeout.Token).ConfigureAwait(false);
             using var stream = client.GetStream();
-            await stream.WriteAsync(Encoding.UTF8.GetBytes(command + "\0"), timeout.Token);
+            await stream.WriteAsync(Encoding.UTF8.GetBytes(command + "\0"), timeout.Token).ConfigureAwait(false);
             using var body = new MemoryStream();
             byte[] buffer = new byte[2048];
             int read;
-            while ((read = await stream.ReadAsync(buffer, timeout.Token)) != 0) {
+            while ((read = await stream.ReadAsync(buffer, timeout.Token).ConfigureAwait(false)) != 0) {
                 if (body.Length + read > 65536) throw new IOException("触觉后端响应过大");
                 body.Write(buffer, 0, read);
             }

@@ -125,6 +125,11 @@ internal static class NativeHapticChecks
                 bool failed = false;
                 try { output.Update(default); } catch (IOException) { failed = true; }
                 Check(failed, "backend loss is explicit rather than a silent controller change");
+                await Task.Run(() => {
+                    SynchronizationContext.SetSynchronizationContext(new NonPumpingContext());
+                    output.Dispose();
+                }).WaitAsync(TimeSpan.FromSeconds(6));
+                Check(true, "cleanup cannot deadlock a UI thread with a non-pumping synchronization context");
             }
             Check(requests.Contains("bus/remove 47") && requests.All(r => !r.Contains("remove 1") && !r.Contains("remove 17")), "cleanup touches only the bus created by this connection");
             Check(requests.Any(r => r.Contains(DualSenseWire.DeviceType)), "audio-capable persona is requested before stream setup");
@@ -134,4 +139,5 @@ internal static class NativeHapticChecks
         }
         return passed;
     }
+    private sealed class NonPumpingContext : SynchronizationContext { public override void Post(SendOrPostCallback callback, object? state) { } }
 }

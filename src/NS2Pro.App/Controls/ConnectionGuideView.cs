@@ -28,7 +28,7 @@ public sealed class ConnectionGuideView : UserControl
     private ConnectionPhase previousPhase = (ConnectionPhase)(-1);
     public event Action? InitialCheckCompleted;
 
-    public ConnectionGuideView(AppSettings settings, ControllerService controller, Action openTest, Action openOverview)
+    public ConnectionGuideView(AppSettings settings, ControllerService controller, Action openTest, Action openOverview, Func<Task> startConnection)
     {
         this.settings = settings; this.controller = controller;
         var content = new StackPanel { Spacing = 20 };
@@ -43,19 +43,19 @@ public sealed class ConnectionGuideView : UserControl
         var steps = new StackPanel { Spacing = 14, Children = {
             Heading("2", "用 SYNC 连接 PC"),
             Label("先拔掉 USB 线，把手柄放在电脑附近。", 14),
-            Label("点击下方「开始连接」，再长按手柄顶部的 SYNC 小圆键，直到指示灯循环闪烁。", 14),
+            SyncHint.ForText(Label("点击下方「开始连接」，再长按手柄顶部的 SYNC 小圆键，直到指示灯循环闪烁。", 14)),
             new Border { Background = Brush(AppPalette.Soft), CornerRadius = new(10), Padding = new(15), Child = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = {
                 new Border { Width = 36, Height = 36, CornerRadius = new(18), Background = Brush(AppPalette.Accent), Child = new FontIcon { Glyph = "\uE895", FontSize = 18, Foreground = Brush("FFFFFF") } },
-                new StackPanel { Spacing = 2, Children = { Label("长按顶部 SYNC", 14, true), Label("连接 PC 请用 SYNC；HOME 会唤醒 NS2。", 12) } }
-            } } }, connectionStatus
+                new StackPanel { Spacing = 2, Children = { SyncHint.ForText(Label("长按顶部 SYNC", 14, true)), SyncHint.ForText(Label("连接 PC 请用 SYNC；回 NS2 前先断开 PC 连接。", 12)) } }
+            } } }, SyncHint.ForText(connectionStatus)
         } };
         start.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
         steps.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = { start, stop } });
-        steps.Children.Add(scanHelp);
+        steps.Children.Add(SyncHint.ForText(scanHelp));
         var tips = new StackPanel { Spacing = 9, Children = {
-            Label("• 请确认 USB 已拔掉，并长按 SYNC，让指示灯循环闪烁。", 12),
+            SyncHint.ForText(Label("• 请确认 USB 已拔掉，并长按 SYNC，让指示灯循环闪烁。", 12)),
             Label("• 关闭其他正在接管这只手柄的连接工具，再重新尝试。", 12),
-            Label("• 不要按 HOME 来连接 PC；使用结束后断开 PC，再按 HOME 回到 NS2。", 12)
+            Label("• 回到 NS2：先在应用中断开 PC 连接，再按 HOME。", 12)
         } };
         var discover = new Button { Content = "改为发现新手柄" };
         discover.Click += async (_, _) => {
@@ -88,7 +88,7 @@ public sealed class ConnectionGuideView : UserControl
         start.Click += async (_, _) => {
             await RefreshEnvironmentAsync();
             if (report?.Ready != true) return;
-            try { await controller.StartAsync(); }
+            try { await startConnection(); }
             catch (Exception error) { connectionStatus.Text = error.Message; }
         };
         stop.Click += async (_, _) => { try { await controller.StopAsync(); } catch (Exception error) { connectionStatus.Text = error.Message; } };
@@ -136,7 +136,7 @@ public sealed class ConnectionGuideView : UserControl
 
     private static StackPanel Heading(string number, string title) => new() { Orientation = Orientation.Horizontal, Spacing = 12, Children = {
         new Border { Width = 28, Height = 28, CornerRadius = new(14), Background = Brush(AppPalette.SoftStrong), Child = new TextBlock { Text = number, FontSize = 13, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = Brush(AppPalette.AccentText), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } },
-        new TextBlock { Text = title, FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = Brush(AppPalette.Text), VerticalAlignment = VerticalAlignment.Center }
+        SyncHint.ForText(new TextBlock { Text = title, FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = Brush(AppPalette.Text), VerticalAlignment = VerticalAlignment.Center })
     } };
     private static Border Card(UIElement child) => new() { Background = Brush("FFFFFF"), BorderBrush = Brush(AppPalette.Border), BorderThickness = new(1), CornerRadius = new(16), Padding = new(22), Child = child };
     private static TextBlock Label(string text, double size, bool bold = false, string color = AppPalette.Muted) => new() { Text = text, FontSize = size, TextWrapping = TextWrapping.Wrap, Foreground = Brush(color), FontWeight = bold ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal };

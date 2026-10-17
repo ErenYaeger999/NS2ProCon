@@ -20,6 +20,8 @@ public sealed class AppSettings
     public double RumbleStrength { get; set; } = .65;
     public GameOutputMode OutputMode { get; set; }
     public int ViiperPort { get; set; } = 3242;
+    public bool ManageHapticBackend { get; set; } = true;
+    public bool PreferNativeHaptics { get; set; }
     public string LastControllerAddress { get; set; } = "";
     public bool HasCompletedFirstConnection { get; set; }
     public bool HasSeenConnectionGuide { get; set; }
@@ -55,6 +57,9 @@ public sealed class AppSettings
     {
         var settings = JsonSerializer.Deserialize<AppSettings>(json) ?? new();
         using var document = JsonDocument.Parse(json);
+        // Existing enhanced-mode users configured an external backend in 0.7.0.
+        if (document.RootElement.ValueKind == JsonValueKind.Object && !document.RootElement.TryGetProperty(nameof(ManageHapticBackend), out _) && settings.OutputMode == GameOutputMode.DualSenseExperimental)
+            settings.ManageHapticBackend = false;
         // An existing settings file predates the seen flag: its user has already opened the app.
         if (document.RootElement.ValueKind == JsonValueKind.Object && !document.RootElement.TryGetProperty(nameof(HasSeenConnectionGuide), out _))
             settings.HasSeenConnectionGuide = true;

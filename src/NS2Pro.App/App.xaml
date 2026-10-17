@@ -21,6 +21,41 @@
                     <SolidColorBrush x:Key="AccentTextFillColorTertiaryBrush" Color="#D00010" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
+            <Style x:Key="LayoutPresetOptionStyle" TargetType="RadioButton">
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="MinHeight" Value="36" />
+                <Setter Property="Padding" Value="14,7" />
+                <Setter Property="FontSize" Value="13" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Foreground" Value="#616161" />
+                <Setter Property="UseSystemFocusVisuals" Value="True" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="RadioButton">
+                            <Border x:Name="OptionSurface" CornerRadius="8" Padding="{TemplateBinding Padding}" Background="Transparent">
+                                <VisualStateManager.VisualStateGroups>
+                                    <VisualStateGroup x:Name="CommonStates">
+                                        <VisualState x:Name="Normal" />
+                                        <VisualState x:Name="PointerOver"><VisualState.Setters><Setter Target="OptionSurface.Opacity" Value="0.8" /></VisualState.Setters></VisualState>
+                                        <VisualState x:Name="Pressed"><VisualState.Setters><Setter Target="OptionSurface.Opacity" Value="0.65" /></VisualState.Setters></VisualState>
+                                        <VisualState x:Name="Disabled"><VisualState.Setters><Setter Target="OptionSurface.Opacity" Value="0.45" /></VisualState.Setters></VisualState>
+                                    </VisualStateGroup>
+                                    <VisualStateGroup x:Name="CheckStates">
+                                        <VisualState x:Name="Unchecked" />
+                                        <VisualState x:Name="Checked">
+                                            <VisualState.Setters>
+                                                <Setter Target="OptionSurface.Background" Value="#FFF0F1" />
+                                                <Setter Target="OptionContent.Foreground" Value="#C60010" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                    </VisualStateGroup>
+                                </VisualStateManager.VisualStateGroups>
+                                <ContentPresenter x:Name="OptionContent" Content="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
             <!-- Non-interactive metadata stays below native footer action rows. -->
             <Style x:Key="SidebarMetadataStyle" TargetType="NavigationViewItemHeader">
                 <Setter Property="IsEnabled" Value="False" />

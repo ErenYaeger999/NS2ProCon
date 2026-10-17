@@ -31,5 +31,17 @@ try {
                 throw "Unused SDK component remains in publish output: $ns2Unused. Publish into a fresh directory."
             }
         }
+        # Keep an existing local development shortcut on the latest successful publish.
+        # Leave shortcuts managed by the installed application untouched.
+        $ns2DisplayName = ([xml](Get-Content -LiteralPath (Join-Path $ns2Root 'Directory.Build.props') -Raw)).Project.PropertyGroup.AppDisplayName | Where-Object { $_ }
+        $ns2DesktopLink = Join-Path ([Environment]::GetFolderPath('Desktop')) "$ns2DisplayName.lnk"
+        if (Test-Path -LiteralPath $ns2DesktopLink -PathType Leaf) {
+            $ns2LinkShell = New-Object -ComObject WScript.Shell
+            $ns2ExistingLink = $ns2LinkShell.CreateShortcut($ns2DesktopLink)
+            $ns2ArtifactPrefix = [IO.Path]::GetFullPath((Join-Path $ns2Root 'artifacts')) + [IO.Path]::DirectorySeparatorChar
+            if ($ns2ExistingLink.TargetPath.StartsWith($ns2ArtifactPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+                & (Join-Path $PSScriptRoot 'install-shortcut.ps1') -AppDirectory $OutputDirectory
+            }
+        }
     }
 } finally { Pop-Location }
