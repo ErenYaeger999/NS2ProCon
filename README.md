@@ -4,6 +4,11 @@
 
 [下载安装包 v0.6.0（Windows x64）](https://github.com/ErenYaeger999/NS2ProCon/releases/download/v0.6.0/NS2Pro-0.6.0-win-x64-setup.exe) · [全部版本与附件](https://github.com/ErenYaeger999/NS2ProCon/releases)
 
+<p align="center">
+  <img src="docs/images/overview.png" width="1000" alt="NS2Pro手柄PC连接器实际运行界面：手柄已连接，A 键实时高亮，输入频率 66 Hz，电量 50%">
+</p>
+<p align="center"><sub>连接状态、按键实时高亮、输入频率和电量，在同一页查看。</sub></p>
+
 ## 功能
 
 - **无线连接**：使用顶部 SYNC 连接 PC；断开后可按 HOME 回到 NS2，无需重新配对。
