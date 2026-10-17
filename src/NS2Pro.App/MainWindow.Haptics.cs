@@ -65,7 +65,7 @@ public sealed partial class MainWindow
     private Expander? enhancementIssue;
     private Button? enhancementAction, enhancementCancel, useXbox, recheckEnhancement;
     private ProgressBar? enhancementProgress;
-    private ToggleSwitch? externalBackend;
+    private ToggleSwitch? automaticBackend;
     private NumberBox? backendPort;
     private EnhancementStatus? lastEnhancementStatus;
     private bool lastEnhancementActive, lastNativeFeedback;
@@ -104,18 +104,18 @@ public sealed partial class MainWindow
         enhancementPanel.Children.Add(enhancementIssue);
         var advanced = new StackPanel { Spacing = 12 };
         advanced.Children.Add(Text($"自动管理：VIIPER {EnhancementComponents.BackendVersion} + USBIP {EnhancementComponents.DriverVersion}。已有其他版本时不会自动降级共享驱动。", 12, false, AppPalette.Muted));
-        externalBackend = new ToggleSwitch { Header = "连接其他软件的后端（手动）", IsOn = !settings.ManageHapticBackend,
-            OnContent = "需要先在其他软件中启动 VIIPER", OffContent = "本应用自动启动后端（推荐）" };
+        automaticBackend = new ToggleSwitch { Header = "自动管理增强后端（推荐）", IsOn = settings.ManageHapticBackend,
+            OnContent = "由本应用启动和管理", OffContent = "手动连接其他软件的后端" };
         backendPort = new NumberBox { Header = "已有后端的本机端口", Minimum = 1024, Maximum = 65535,
             Value = settings.ViiperPort, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
-        externalBackend.Toggled += async (_, _) => {
-            if (!updatingBackendOptions) await ChangeBackendSettingsAsync(!externalBackend.IsOn, settings.ViiperPort, checkAfterChange: true);
+        automaticBackend.Toggled += async (_, _) => {
+            if (!updatingBackendOptions) await ChangeBackendSettingsAsync(automaticBackend.IsOn, settings.ViiperPort, checkAfterChange: true);
         };
         backendPort.ValueChanged += async (_, args) => {
             if (updatingBackendOptions || !double.IsFinite(args.NewValue)) return;
             await ChangeBackendSettingsAsync(settings.ManageHapticBackend, (int)Math.Clamp(args.NewValue, 1024, 65535), checkAfterChange: false);
         };
-        advanced.Children.Add(externalBackend); advanced.Children.Add(backendPort);
+        advanced.Children.Add(automaticBackend); advanced.Children.Add(backendPort);
         recheckEnhancement = new Button { Content = "重新检测（不安装）" };
         recheckEnhancement.Click += async (_, _) => await PrepareEnhancementAsync(recheck: true);
         advanced.Children.Add(recheckEnhancement);
@@ -184,7 +184,7 @@ public sealed partial class MainWindow
     {
         updatingBackendOptions = true;
         try {
-            if (externalBackend is not null) externalBackend.IsOn = !settings.ManageHapticBackend;
+            if (automaticBackend is not null) automaticBackend.IsOn = settings.ManageHapticBackend;
             if (backendPort is not null) backendPort.Value = settings.ViiperPort;
         } finally { updatingBackendOptions = false; }
     }
@@ -248,7 +248,7 @@ public sealed partial class MainWindow
         gameMode.IsEnabled = !active && !busy && !AppSettings.IsPreview;
         modeHint!.Text = active ? "请先断开 PC 连接，再切换游戏模式。" : "在启动游戏前选择。通用兼容适合大多数游戏，增强模式需要游戏支持。";
         enhancementPanel.Visibility = wantsEnhanced ? Visibility.Visible : Visibility.Collapsed;
-        backendManagementHint!.Text = settings.ManageHapticBackend ? "由本应用自动管理：先检测已有组件，缺少时再提示安装。" : "连接其他软件的后端：需要先在原软件中启动，安装或重启不会自动启动它。";
+        backendManagementHint!.Text = settings.ManageHapticBackend ? "自动管理已开启：本应用检测并启动后端，缺少组件时再提示安装。" : "自动管理已关闭：需要先在其他软件中启动后端，再由本应用连接。";
         enhancementMessage!.Text = changingBackendSettings ? "正在切换后端设置…" : active && state.Ready && settings.OutputMode == GameOutputMode.DualSenseExperimental ?
             native ? "正在接收游戏原生触觉" : "增强模式已连接，等待游戏反馈" : state.Message;
         enhancementProgress!.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
@@ -277,7 +277,7 @@ public sealed partial class MainWindow
             "检测会复用已有组件，不会下载或重新安装。";
         enhancementDetail!.Text = state.Detail;
         enhancementIssue!.Visibility = !string.IsNullOrWhiteSpace(state.Detail) && !busy ? Visibility.Visible : Visibility.Collapsed;
-        externalBackend!.IsEnabled = !busy && !active;
+        automaticBackend!.IsEnabled = !busy && !active;
         backendPort!.IsEnabled = !busy && !active;
         recheckEnhancement!.IsEnabled = !busy && !active && !AppSettings.IsPreview;
         backendPort.Visibility = settings.ManageHapticBackend ? Visibility.Collapsed : Visibility.Visible;

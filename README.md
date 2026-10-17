@@ -1,10 +1,10 @@
 # NS2Pro手柄PC连接器
 
-**v0.8.0**：可选 DualSense 触觉增强支持按需安装和自动管理；检测与安装分开，默认连接不受增强环境影响。首页可直接切换布局，并优化 SYNC 提示与新版启动提示。详见[更新记录](CHANGELOG.md)。
+**v0.8.1**：修正增强后端开关的表达，开启即自动管理，关闭才使用其他软件的后端；保留原设置，切换只检测、不自动安装。详见[更新记录](CHANGELOG.md)。
 
 通过蓝牙把 Nintendo Switch 2 Pro Controller 无线连接到 Windows，默认输出为 Xbox 360 / XInput 手柄，保留原有 NS2 配对。
 
-[下载 v0.8.0 安装版（Windows x64）](https://github.com/ErenYaeger999/NS2ProCon/releases/download/v0.8.0/NS2Pro-0.8.0-win-x64-setup.exe) · [全部版本与附件](https://github.com/ErenYaeger999/NS2ProCon/releases)
+[下载 v0.8.1 安装版（Windows x64）](https://github.com/ErenYaeger999/NS2ProCon/releases/download/v0.8.1/NS2Pro-0.8.1-win-x64-setup.exe) · [全部版本与附件](https://github.com/ErenYaeger999/NS2ProCon/releases)
 
 <p align="center">
   <img src="docs/images/overview.png" width="1000" alt="NS2Pro手柄PC连接器实际运行界面：手柄已连接，A 键实时高亮，输入频率 66 Hz，电量 50%">
@@ -56,13 +56,15 @@
 
 默认通用兼容已包含普通游戏震动，可直接连接。想试用增强模式时，从「连接总览」右侧的「设置游戏模式」进入，选择「原生触觉增强（实验）」。应用先检测并复用已有组件，缺少时才显示安装入口；仅安装驱动时需要管理员权限和重启。以后由应用自动启动后端，无需另开控制台。若使用旧配置的手动后端，可点「改用自动管理并检测」；切换与重新检测不会自动安装组件。
 
+高级选项中的「自动管理增强后端（推荐）」开启时由本应用管理；关闭时才手动连接其他软件已启动的后端，并显示端口设置。
+
 组件按需下载，不计入默认安装包。环境未准备好不会阻断普通连接；已有增强在连接前检测失败时会回退通用兼容，游戏运行中不会自动更换虚拟设备。部分游戏需关闭该游戏的 Steam Input；系统声音输出保持原来的扬声器或耳机。
 
 本机已通过后端启动、真实虚拟 DualSense 与触觉音频端点自检；真实游戏的触觉提升仍待验证。安装细节见[增强组件说明](docs/enhancement-setup.md)，实现范围和测试记录见[震动说明](docs/haptics.md)。
 
 ## 空间占用
 
-v0.8.0 大小（MiB，取整）：
+v0.8.1 大小（MiB，取整）：
 
 | 内容 | 大小 |
 | --- | ---: |
