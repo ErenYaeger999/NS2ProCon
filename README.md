@@ -2,7 +2,7 @@
 
 通过蓝牙把 Nintendo Switch 2 Pro Controller 无线连接到 Windows，输出为 Xbox 360 / XInput 手柄，并保留原有 NS2 配对。
 
-[下载安装包 v0.6.0（Windows x64）](https://github.com/ErenYaeger999/NS2ProCon/releases/download/v0.6.0/NS2Pro-0.6.0-win-x64-setup.exe) · [全部版本与附件](https://github.com/ErenYaeger999/NS2ProCon/releases)
+[下载安装包 v0.6.1（Windows x64）](https://github.com/ErenYaeger999/NS2ProCon/releases/download/v0.6.1/NS2Pro-0.6.1-win-x64-setup.exe) · [全部版本与附件](https://github.com/ErenYaeger999/NS2ProCon/releases)
 
 <p align="center">
   <img src="docs/images/overview.png" width="1000" alt="NS2Pro手柄PC连接器实际运行界面：手柄已连接，A 键实时高亮，输入频率 66 Hz，电量 50%">
@@ -44,7 +44,7 @@
 
 ## 空间占用
 
-v0.6.0 发布文件实测大小如下（**MiB = 1,048,576 字节**，不是运行时内存占用）：
+v0.6.1 发布文件实测大小如下（**MiB = 1,048,576 字节**，不是运行时内存占用）：
 
 | 内容 | 大小 |
 | --- | ---: |
@@ -79,7 +79,7 @@ v0.6.0 发布文件实测大小如下（**MiB = 1,048,576 字节**，不是运�
 
 本项目原创代码采用 [MIT 许可证](LICENSE)，允许商业使用、修改和再分发，须保留版权和许可声明。
 
-第三方组件和素材仍适用各自的许可；任天堂标志等第三方内容不在本项目的 MIT 授权范围内，相关版权与商标权归原权利人所有。来源见下方致谢，后续发布会附带项目 `LICENSE.txt`，第三方许可保存在发布目录的 `Licenses` 文件夹。
+第三方组件和素材仍适用各自的许可；任天堂标志等第三方内容不在本项目的 MIT 授权范围内，相关版权与商标权归原权利人所有。来源见下方致谢，安装版和便携版均附带项目 `LICENSE.txt`，第三方许可保存在发布目录的 `Licenses` 文件夹。
 
 ## 来源与致谢
 
