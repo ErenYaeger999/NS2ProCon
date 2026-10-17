@@ -60,4 +60,12 @@ DualSense 普通／改进型震动的启用标记及取消启用的停止方式�
 
 本次游戏测试还发现增强连接后，Windows 的默认音频输入／输出可能切换到 DualSense。当前需要在系统声音设置中切回原扬声器／耳机和麦克风，建议进游戏前完成；已经启动的游戏必要时重进。默认音频设备的保留与恢复列为 TODO，尚未实现；具体操作见 [README](../README.md#可选原生触觉增强)。
 
+### 按键提示与增强兼容性 · 初步调研
+
+增强模式在本项目中创建的是 `dualsensecombinedaudioduplexv5`，游戏会看到 DualSense HID 和触觉音频端点；[VIIPER 的固定版本文档](https://github.com/hbashton/VIIPER/blob/v0.1.9-rc4.6.6/docs/devices/dualsense.md)与 [DS4Windows 的使用说明](https://github.com/hbashton/DS4Windows#keep-the-detail-lose-the-cable)均将原生游戏触觉建立在 DualSense 输出上。[Steamworks 文档](https://partner.steamgames.com/doc/features/steam_controller/steam_input_gamepad_emulation_bestpractices)说明按键图标由游戏依据输入来源或手柄类型选择。因此，当前增强模式可能使游戏显示 PS 按键图标，本应用的映射预设不能修改游戏的图标资源或显示策略。
+
+若游戏提供独立的提示样式设置，可尝试保持 DualSense 输出、只选 Xbox 图标；是否与触觉开关独立，须逐游戏验证。简单改成 Xbox 360 输出只能接收 [XInput 的低／高频双电机强度](https://learn.microsoft.com/en-us/windows/win32/api/xinput/ns-xinput-xinput_vibration)，不能保留这条 DualSense 原生触觉通道。VIIPER 虽提供音频 sidecar，但仅有音频端点不能保证游戏会为另一只 Xbox 设备生成 DualSense 专用触觉；同时呈现两种手柄还需解决游戏选择、反馈归属和重复输入问题。
+
+初步调研未找到可直接接入、普遍保留原生触觉并强制 Xbox 图标的方案。后续可优先记录各游戏自带图标选项，再评估逐游戏适配；不把 Steam Input 转换或普通声音生成震动等同于保留原生触觉。本次仅记录限制与 TODO，程序行为未改动。
+
 以上不能替代不同蓝牙适配器的兼容性测试。仍待验证：真实游戏原生触觉的提升、与 NS2 的震感对照、Windows 10 适配器及真实系统休眠恢复。环境通过和普通震动正常，不等于具体游戏的原生触觉效果已验证。
