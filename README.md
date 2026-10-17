@@ -1,5 +1,7 @@
 # NS2Pro手柄PC连接器
 
+**v0.7.0 更新**：新增通用游戏震动与测试、启动更新提醒和原位升级；连接指南移至左下角。详见[更新记录](CHANGELOG.md)。
+
 通过蓝牙把 Nintendo Switch 2 Pro Controller 无线连接到 Windows，输出为 Xbox 360 / XInput 手柄，并保留原有 NS2 配对。
 
 [下载安装包 v0.7.0（Windows x64）](https://github.com/ErenYaeger999/NS2ProCon/releases/download/v0.7.0/NS2Pro-0.7.0-win-x64-setup.exe) · [全部版本与附件](https://github.com/ErenYaeger999/NS2ProCon/releases)
@@ -57,12 +59,6 @@ v0.7.0 发布文件实测大小如下（**MiB = 1,048,576 字节**，不是运�
 | 安装包（EXE 下载） | **约 47.9 MiB** |
 | 便携版（ZIP 下载） | 约 71.2 MiB |
 | 完整发布目录，含运行环境、离线驱动和许可 | 约 177.1 MiB |
-| 其中，程序 EXE 与两个业务 DLL | 约 0.68 MiB |
-| 其中，ViGEmBus 离线安装器 | 约 6.0 MiB |
-| 精简前完整发布目录 | 约 237.5 MiB |
-
-改为按需引用 Windows App SDK 组件后，移除了未使用的 AI、ONNX、DirectML、搜索和小组件依赖；相较精简前，当前目录体积减少约 **60.4 MiB（25.4%）**。仍自带完整 .NET 和所需 WinUI 运行环境。
-
 以上不含安装到 Windows 的共享驱动、个人日志和安装时的临时文件，实际磁盘分配会略有差异。
 
 ## 开发
