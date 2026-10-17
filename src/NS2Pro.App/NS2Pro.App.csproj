@@ -23,6 +23,7 @@
     <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="2.1.9" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
     <ProjectReference Include="..\NS2Pro.Core\NS2Pro.Core.csproj" />
+    <Content Include="..\..\LICENSE" Link="LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\third_party\vigem\ViGEmClient.dll" Link="ViGEmClient.dll" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\third_party\vigem\LICENSE.txt" Link="Licenses\vgamepad.txt" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\third_party\vigem\ViGEmClient-LICENSE.txt" Link="Licenses\ViGEmClient.txt" CopyToOutputDirectory="PreserveNewest" />

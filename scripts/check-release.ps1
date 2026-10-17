@@ -2,10 +2,12 @@ param([Parameter(Mandatory = $true)][string]$PublishDirectory, [string]$ReportDi
 $ErrorActionPreference = 'Stop'
 $ns2Directory = (Resolve-Path -LiteralPath $PublishDirectory).Path
 $ns2Checks = [Collections.Generic.List[string]]::new()
-foreach ($ns2Required in @('NS2Pro.exe','NS2Pro.dll','NS2Pro.Core.dll','NS2Pro.pri','NS2Pro.runtimeconfig.json','hostfxr.dll','coreclr.dll','Microsoft.UI.Xaml.dll','Microsoft.WindowsAppRuntime.dll','ViGEmClient.dll','Assets\App.ico','Assets\App.png','Assets\App.svg','Licenses\ViGEmClient.txt','Licenses\vgamepad.txt','Licenses\ViGEmBus.txt','Licenses\WindowsSDK.rtf','Licenses\Packages\microsoft.netcore.app.runtime.win-x64\LICENSE.TXT','Prerequisites\manifest.json','使用说明.txt')) {
+foreach ($ns2Required in @('NS2Pro.exe','NS2Pro.dll','NS2Pro.Core.dll','NS2Pro.pri','NS2Pro.runtimeconfig.json','hostfxr.dll','coreclr.dll','Microsoft.UI.Xaml.dll','Microsoft.WindowsAppRuntime.dll','LICENSE.txt','ViGEmClient.dll','Assets\App.ico','Assets\App.png','Assets\App.svg','Licenses\ViGEmClient.txt','Licenses\vgamepad.txt','Licenses\ViGEmBus.txt','Licenses\WindowsSDK.rtf','Licenses\Packages\microsoft.netcore.app.runtime.win-x64\LICENSE.TXT','Prerequisites\manifest.json','使用说明.txt')) {
     if (-not (Test-Path -LiteralPath (Join-Path $ns2Directory $ns2Required) -PathType Leaf)) { throw "Missing release file: $ns2Required" }
 }
 $ns2Checks.Add('Required app, runtime, resource, driver and license files are present')
+if ((Get-FileHash -LiteralPath (Join-Path $ns2Directory 'LICENSE.txt') -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'LICENSE') -Algorithm SHA256).Hash) { throw 'Release project license differs from the repository LICENSE' }
+$ns2Checks.Add('Project MIT license matches the repository LICENSE')
 $ns2Runtime = Get-Content -LiteralPath (Join-Path $ns2Directory 'NS2Pro.runtimeconfig.json') -Raw | ConvertFrom-Json
 if ($ns2Runtime.runtimeOptions.framework -or $ns2Runtime.runtimeOptions.frameworks -or -not $ns2Runtime.runtimeOptions.includedFrameworks) { throw 'Release still depends on a globally installed .NET runtime' }
 $ns2Checks.Add('.NET runtime is self-contained')

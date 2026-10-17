@@ -18,9 +18,12 @@ try {
     }
     if ($LASTEXITCODE -ne 0) { throw 'Native app build failed' }
     if ($Publish) {
-        foreach ($ns2Required in @('NS2Pro.exe', 'NS2Pro.dll', 'NS2Pro.pri', 'ViGEmClient.dll', 'Assets\App.ico', 'Assets\App.png', 'Assets\App.svg', 'Licenses\ViGEmClient.txt', 'Licenses\vgamepad.txt')) {
+        foreach ($ns2Required in @('NS2Pro.exe', 'NS2Pro.dll', 'NS2Pro.pri', 'LICENSE.txt', 'ViGEmClient.dll', 'Assets\App.ico', 'Assets\App.png', 'Assets\App.svg', 'Licenses\ViGEmClient.txt', 'Licenses\vgamepad.txt')) {
             $ns2RequiredPath = Join-Path $OutputDirectory $ns2Required
             if (-not (Test-Path -LiteralPath $ns2RequiredPath)) { throw "Published file missing: $ns2Required" }
+        }
+        if ((Get-FileHash -LiteralPath (Join-Path $OutputDirectory 'LICENSE.txt') -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath (Join-Path $ns2Root 'LICENSE') -Algorithm SHA256).Hash) {
+            throw 'Published project license differs from the repository LICENSE'
         }
         # Publishing into an old directory does not remove dependencies from the old package graph.
         foreach ($ns2Unused in @('onnxruntime.dll', 'DirectML.dll', 'Microsoft.Windows.AI.MachineLearning.dll', 'Microsoft.Windows.Search.dll', 'Microsoft.Windows.Widgets.dll', 'DWriteCore.dll')) {

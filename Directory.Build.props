@@ -6,6 +6,8 @@
     <Version>0.6.0</Version>
     <AppDisplayName>NS2Pro手柄PC连接器</AppDisplayName>
     <Authors>NS2ProCon contributors</Authors>
+    <Copyright>Copyright (c) 2026 ErenYaeger999 and NS2ProCon contributors</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <Deterministic>true</Deterministic>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
