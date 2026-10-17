@@ -3,7 +3,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
-    <Version>0.8.2</Version>
+    <Version>0.8.3</Version>
     <AppDisplayName>NS2Pro手柄PC连接器</AppDisplayName>
     <Authors>NS2ProCon contributors</Authors>
     <Copyright>Copyright (c) 2026 ErenYaeger999 and NS2ProCon contributors</Copyright>

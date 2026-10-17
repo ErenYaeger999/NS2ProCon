@@ -205,6 +205,7 @@ public sealed partial class MainWindow : Window
         public readonly Dictionary<ButtonLayout, Border> layoutCards = new();
         public readonly TextBlock gameModeTitle = Text("通用兼容模式", 13, true);
         public readonly TextBlock gameModeHelp = Text("支持原生触觉的游戏，可到设置中试用增强模式。", 12, false, AppPalette.Muted);
+        public Border? enhancedUsageNotice;
     }
     private sealed record CachedPage(StackPanel Content, LiveControls Live, string Title, string Subtitle);
     private void WireLiveControls()
@@ -274,6 +275,8 @@ public sealed partial class MainWindow : Window
         actions.Children.Add(live.gameModeTitle); actions.Children.Add(live.gameModeHelp);
         var modeSettings = new HyperlinkButton { Content = "设置游戏模式", Padding = new(0), HorizontalAlignment = HorizontalAlignment.Left };
         modeSettings.Click += (_, _) => OpenEnhancementSettings(); actions.Children.Add(modeSettings);
+        live.enhancedUsageNotice = EnhancedUsageNotice(compact: true);
+        actions.Children.Add(live.enhancedUsageNotice);
         page.Children.Add(Columns(Card(hero, 24), Card(actions, 23), 1.8, 1));
         var battery = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 13 };
         live.batteryIcon.VerticalAlignment = VerticalAlignment.Center;
@@ -467,7 +470,8 @@ public sealed partial class MainWindow : Window
         connectButton.Content = info.ActionText;
         connectButton.IsEnabled = info.CanStart || info.CanStop;
         live.connectionHint.Text = info.Phase switch {
-            ConnectionPhase.Connected => "连接已建立，可直接开始游戏。",
+            ConnectionPhase.Connected => settings.OutputMode == GameOutputMode.DualSenseExperimental ?
+                "连接已建立，请先检查声音与麦克风，再开始游戏。" : "连接已建立，可直接开始游戏。",
             ConnectionPhase.WaitingForInput => "蓝牙已连接，正在等待手柄输入。",
             ConnectionPhase.Searching => "长按顶部 SYNC，直到手柄指示灯循环闪烁。",
             ConnectionPhase.Preparing or ConnectionPhase.Connecting => "正在连接手柄，请稍候。",

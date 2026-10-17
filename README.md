@@ -10,7 +10,7 @@
 
 通过蓝牙把 Nintendo Switch 2 Pro Controller 无线连接到 Windows，默认输出为 Xbox 360 / XInput 手柄，保留原有 NS2 配对。
 
-[下载 v0.8.2 安装版（Windows x64）](https://github.com/ErenYaeger999/NS2ProCon/releases/download/v0.8.2/NS2Pro-0.8.2-win-x64-setup.exe) · [全部版本与附件](https://github.com/ErenYaeger999/NS2ProCon/releases)
+[下载 v0.8.3 安装版（Windows x64）](https://github.com/ErenYaeger999/NS2ProCon/releases/download/v0.8.3/NS2Pro-0.8.3-win-x64-setup.exe) · [全部版本与附件](https://github.com/ErenYaeger999/NS2ProCon/releases)
 
 <p align="center">
   <img src="docs/images/overview.png" width="1000" alt="NS2Pro手柄PC连接器实际运行界面：手柄已连接，A 键实时高亮，输入频率 66 Hz，电量 50%">
@@ -64,6 +64,8 @@
 
 高级选项中的「自动管理增强后端（推荐）」开启时由本应用管理；关闭时才手动连接其他软件已启动的后端，并显示端口设置。
 
+选择增强后，设置页会展示使用须知，连接总览保留简短提醒，并提供「打开声音设置」入口。建议先连接、检查声音和麦克风，再启动游戏；这些提示不会阻止连接。
+
 组件按需下载，不计入默认安装包。环境未准备好不会阻断普通连接；已有增强在连接前检测失败时会回退通用兼容，游戏运行中不会自动更换虚拟设备。部分游戏需关闭该游戏的 Steam Input。
 
 **增强模式的音频设置：建议连接后先检查声音，再启动游戏。** Windows 可能把默认音频输出和输入切换为 DualSense，导致游戏无声或麦克风不可用。遇到这种情况：
@@ -85,7 +87,7 @@
 
 ## 空间占用
 
-v0.8.2 大小（MiB，取整）：
+v0.8.3 大小（MiB，取整）：
 
 | 内容 | 大小 |
 | --- | ---: |
