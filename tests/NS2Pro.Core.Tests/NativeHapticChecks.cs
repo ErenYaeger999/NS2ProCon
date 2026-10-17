@@ -51,6 +51,8 @@ internal static class NativeHapticChecks
         var requests = new ConcurrentQueue<string>();
         var allowFeedback = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var dropStream = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var checkStops = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopsSent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var validInput = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
         int port = ((IPEndPoint)listener.LocalEndpoint).Port;
@@ -93,6 +95,8 @@ internal static class NativeHapticChecks
                 }
                 await allowFeedback.Task.WaitAsync(stop.Token);
                 byte[] feedback = new byte[474]; feedback[0] = 57; feedback[1] = 23;
+                // Exact USB command at 28; compact motor fields are cached by VIIPER.
+                feedback[28] = 0x02; feedback[29] = 0x03; feedback[31] = 57; feedback[32] = 23;
                 var first = DualSenseWire.Encode(0x81, 10, feedback);
                 await stream.WriteAsync(first.AsMemory(0, 3), stop.Token); // fragmented TCP header
                 await stream.WriteAsync(first.AsMemory(3), stop.Token);
@@ -106,20 +110,50 @@ internal static class NativeHapticChecks
                     await stream.WriteAsync(DualSenseWire.Encode(0x84, (uint)(11 + i * 2), media.AsSpan(2, 474)), stop.Token);
                     await stream.WriteAsync(DualSenseWire.Encode(0x83, (uint)(12 + i * 2), media), stop.Token);
                 }
+                await checkStops.Task.WaitAsync(stop.Token);
+                // SDL-style stop restores audio haptics by clearing rumble enables.
+                // VIIPER intentionally leaves its compact motor fields at the previous values.
+                Array.Clear(feedback, 28, 48); feedback[28] = 0x02;
+                await stream.WriteAsync(DualSenseWire.Encode(0x81, 15, feedback), stop.Token);
+                var silentMedia = new byte[2 + 474 + 1920];
+                BinaryPrimitives.WriteUInt16LittleEndian(silentMedia, 474);
+                feedback.CopyTo(silentMedia, 2);
+                silentMedia[78] = 0x36; silentMedia[154] = 0x92; silentMedia[155] = 64;
+                await stream.WriteAsync(DualSenseWire.Encode(0x83, 16, silentMedia), stop.Token);
+                await stream.WriteAsync(DualSenseWire.Encode(0x83, 17, silentMedia), stop.Token);
+                // Improved rumble uses a different enable bit and must also remain supported.
+                feedback[29] = 0x02; feedback[67] = 0x04; feedback[31] = 88; feedback[32] = 44;
+                await stream.WriteAsync(DualSenseWire.Encode(0x81, 18, feedback), stop.Token);
+                feedback[31] = 0; feedback[32] = 0;
+                await stream.WriteAsync(DualSenseWire.Encode(0x81, 19, feedback), stop.Token);
+                // A selector-only report's padding is not a new compatible-rumble command.
+                feedback[67] = 0; feedback[31] = 255; feedback[32] = 255;
+                await stream.WriteAsync(DualSenseWire.Encode(0x81, 20, feedback), stop.Token);
+                // A subsequent LED command must not revive the compact cached motor values.
+                Array.Clear(feedback, 28, 48); feedback[28] = 0x02; feedback[30] = 0x04;
+                await stream.WriteAsync(DualSenseWire.Encode(0x81, 21, feedback), stop.Token);
+                stopsSent.TrySetResult();
                 await dropStream.Task.WaitAsync(stop.Token);
             }
         }
         try {
             Check((await ViiperGamepad.ProbeAsync(port)).Contains("test-v5"), "non-mutating backend identity probe");
             using (var output = await ViiperGamepad.CreateAsync(port, CancellationToken.None)) {
-                int richFrames = 0; bool ordinary = false;
-                output.RumbleChanged += (low, high) => { if (low == 23 && high == 57) ordinary = true; };
+                int richFrames = 0;
+                var ordinary = new ConcurrentQueue<(byte Low, byte High)>();
+                output.RumbleChanged += (low, high) => ordinary.Enqueue((low, high));
                 output.NativeHaptics += _ => Interlocked.Increment(ref richFrames);
                 output.Update(new() { Buttons = 0x1000, LeftX = 32767 });
                 await validInput.Task.WaitAsync(TimeSpan.FromSeconds(3));
                 allowFeedback.TrySetResult();
-                await HapticChecks.Until(() => richFrames == 2 && ordinary);
+                await HapticChecks.Until(() => richFrames == 2 && !ordinary.IsEmpty);
                 Check(true, "loopback V5 input, fragmented feedback, ordinary fallback and stereo haptics without duplicated realtime samples");
+                Check(ordinary.ToArray().SequenceEqual(new (byte, byte)[] { (23, 57) }), "media snapshots do not replay compact cached rumble");
+                checkStops.TrySetResult();
+                await stopsSent.Task.WaitAsync(TimeSpan.FromSeconds(3));
+                await HapticChecks.Until(() => ordinary.Count >= 6);
+                Check(ordinary.ToArray().SequenceEqual(new (byte, byte)[] { (23, 57), (0, 0), (44, 88), (0, 0), (0, 0), (0, 0) }),
+                    "classic/improved rumble stops, audio selection and LED reports cannot resurrect stale motor strengths");
                 dropStream.TrySetResult();
                 await HapticChecks.Until(() => !output.FeedbackAvailable);
                 bool failed = false;

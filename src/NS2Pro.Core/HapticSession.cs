@@ -148,9 +148,10 @@ public sealed class HapticSession : IAsyncDisposable
                     }
                 }
                 if (finish) return;
-                // Constant game output needs refreshes even without another native callback.
+                // Constant output needs refreshes without callbacks. A lease can expire during
+                // the awaited write, so send the final silence before parking the writer.
                 bool animate;
-                lock (gate) animate = test.HasValue || !desired.IsSilent || Stopwatch.GetTimestamp() < richUntil || stopPending || stopping;
+                lock (gate) animate = lastActive || test.HasValue || !desired.IsSilent || Stopwatch.GetTimestamp() < richUntil || stopPending || stopping;
                 if (!animate) await signal.WaitAsync();
             }
         } catch (Exception error) {

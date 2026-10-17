@@ -266,6 +266,7 @@ public sealed class ControllerService(AppSettings settings, EnhancementService e
                 await rumble.DisposeAsync(); // bounded final stop while GATT/session are still alive
                 var statistics = rumble.Status;
                 AppLog.Write("info", $"本次震动：反馈 {statistics.Feedback} 次 · 写入 {statistics.Writes} 次 · 合并 {statistics.Coalesced} 次 · 最慢写入 {statistics.MaxWriteMilliseconds:F1} ms");
+                if (output is ViiperGamepad nativeOutput) AppLog.Write("info", nativeOutput.FeedbackSummary);
             }
             haptics = null; hapticMessage = "连接手柄后可测试震动";
             Interlocked.Exchange(ref nativeHapticAt, 0);

@@ -18,11 +18,13 @@ public sealed class ViiperGamepad : IGameOutput
     private readonly CancellationTokenSource cancellation = new();
     private readonly Task reader, writer;
     private XboxReport latest;
+    private long rumbleCommands, rumbleStops, nativeBlocks, nativeActiveBlocks;
     private volatile Exception? failure;
     private int disposed;
     public bool FeedbackAvailable => disposed == 0 && failure is null;
     public event Action<byte, byte>? RumbleChanged;
     public event Action<HapticFrame>? NativeHaptics;
+    public string FeedbackSummary => $"本次增强反馈：普通指令 {Interlocked.Read(ref rumbleCommands)} 次 · 停止 {Interlocked.Read(ref rumbleStops)} 次 · 原生采样 {Interlocked.Read(ref nativeBlocks)} 块 · 非零 {Interlocked.Read(ref nativeActiveBlocks)} 块";
 
     private ViiperGamepad(int port, int bus, TcpClient connection)
     {
@@ -106,15 +108,27 @@ public sealed class ViiperGamepad : IGameOutput
                     BinaryPrimitives.ReadUInt16LittleEndian(payload) == DualSenseWire.FeedbackSize) offset = 2;
                 else if (type == 0x85 && payload.Length == 9) continue;
                 else throw new InvalidDataException("触觉后端的反馈格式不兼容；需要提供 VPCM V5 的 VIIPER 版本");
-                // Standard DualSense rumble is always a usable fallback within this persona.
-                RumbleChanged?.Invoke(payload[offset + 1], payload[offset]);
-                if (type != 0x83) continue;
+                if (type == 0x81) {
+                    // V5 compact motors are cumulative caches, even after the game restores
+                    // audio haptics. Only exact USB output commands carry current enables.
+                    // Media snapshots must not renew a stopped compatible-rumble effect.
+                    var command = payload.AsSpan(28, 48);
+                    if (command[0] == 0x02 && payload[76] != 0x36) {
+                        bool compatible = (command[1] & 0x01) != 0 || (command[39] & 0x04) != 0;
+                        Interlocked.Increment(ref rumbleCommands);
+                        if (!compatible || (command[3] == 0 && command[4] == 0)) Interlocked.Increment(ref rumbleStops);
+                        RumbleChanged?.Invoke(compatible ? command[4] : (byte)0, compatible ? command[3] : (byte)0);
+                    }
+                    continue;
+                }
                 int carrier = offset + 76;
                 if (payload[carrier] != 0x36 || payload[carrier + 76] != 0x92 || payload[carrier + 77] != 64)
                     throw new InvalidDataException("触觉后端没有有效的原生触觉采样");
                 if (lastMedia != 0 && Stopwatch.GetElapsedTime(lastMedia).TotalMilliseconds > 100) { processor.Reset(); hadAudio = false; }
                 lastMedia = Stopwatch.GetTimestamp();
                 var frame = processor.Process(payload.AsSpan(carrier + 78, 64));
+                Interlocked.Increment(ref nativeBlocks);
+                if (!frame.IsSilent) Interlocked.Increment(ref nativeActiveBlocks);
                 if (!frame.IsSilent || hadAudio) NativeHaptics?.Invoke(frame);
                 hadAudio = !frame.IsSilent;
             }

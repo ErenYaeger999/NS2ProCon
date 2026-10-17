@@ -103,6 +103,26 @@ internal static class HapticChecks
             Check(true, "native sample lease expires to silence when the source disappears");
         }
 
+        var expiredWrites = new ConcurrentQueue<byte[]>();
+        var richEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseRich = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using (var expiring = new HapticSession(async (data, token) => {
+            expiredWrites.Enqueue(data);
+            if (Active(data)) { richEntered.TrySetResult(); await releaseRich.Task.WaitAsync(token); }
+        }, true, 1)) {
+            expiring.SetInputAvailable(true);
+            await Until(() => !expiredWrites.IsEmpty);
+            await Task.Delay(40); // let the initial stop and wake drain before this isolated sample
+            expiring.SubmitRich(new(new(.5, 0), default));
+            await richEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            await Task.Delay(130); // the sample expires while its final BLE write is in flight
+            releaseRich.TrySetResult();
+            bool silenced = true;
+            try { await Until(() => !Active(expiredWrites.Last()), 500); }
+            catch (TimeoutException) { silenced = false; }
+            Check(silenced, "native lease expiring during a BLE write still emits a final stop without another callback");
+        }
+
         var timed = Stopwatch.StartNew();
         await using (var timeout = new HapticSession(async (_, token) => await Task.Delay(Timeout.Infinite, token), true, 1)) {
             await Until(() => timeout.Status.Faulted, 2200);
