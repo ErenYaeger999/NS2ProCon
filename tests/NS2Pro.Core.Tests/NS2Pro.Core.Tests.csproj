@@ -4,4 +4,9 @@
   <ItemGroup><Compile Include="..\..\src\NS2Pro.App\Services\AppSettings.cs" Link="AppSettings.cs" /></ItemGroup>
   <ItemGroup><Compile Include="..\..\src\NS2Pro.App\Services\SingleInstance.cs" Link="SingleInstance.cs" /></ItemGroup>
   <ItemGroup><Compile Include="..\..\src\NS2Pro.App\Services\ConnectionInfo.cs" Link="ConnectionInfo.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="..\..\src\NS2Pro.App\Services\VirtualGamepad.cs" Link="VirtualGamepad.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="..\..\src\NS2Pro.App\Services\IGameOutput.cs" Link="IGameOutput.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="..\..\src\NS2Pro.App\Services\ViiperGamepad.cs" Link="ViiperGamepad.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="..\..\src\NS2Pro.App\Services\UpdateService.cs" Link="UpdateService.cs" /></ItemGroup>
+  <ItemGroup><Content Include="..\..\third_party\vigem\ViGEmClient.dll" Link="ViGEmClient.dll" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
 </Project>

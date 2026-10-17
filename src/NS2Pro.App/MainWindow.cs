@@ -57,6 +57,7 @@ public sealed partial class MainWindow : Window
     private Button connectButton => live.connectButton;
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(33) };
     private TrayIcon? tray;
+    private PowerNotifications? powerNotifications;
     private bool exiting, exitAllowed;
     private string selectedPage = "overview";
     private readonly Queue<string> logLines = new();
@@ -71,6 +72,8 @@ public sealed partial class MainWindow : Window
         ExtendsContentIntoTitleBar = true;
         if (Microsoft.UI.Composition.SystemBackdrops.MicaController.IsSupported()) SystemBackdrop = new MicaBackdrop();
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        try { powerNotifications = new(hwnd, controller.SetSystemSuspended); }
+        catch (Exception error) { AppLog.Write("warn", error.Message); }
         double scale = Math.Max(1, NativeMethods.GetDpiForWindow(hwnd) / 96.0);
         var workArea = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
         AppWindow.Resize(new SizeInt32(Math.Min((int)(1200 * scale), workArea.Width - (int)(40 * scale)), Math.Min((int)(870 * scale), workArea.Height - (int)(40 * scale))));
@@ -95,7 +98,6 @@ public sealed partial class MainWindow : Window
         navigation.PaneHeader = Brand();
         ConfigureSidebarFooter();
         AddNavigation("连接总览", "overview", "\uE701");
-        AddNavigation("连接指南", "setup", "\uE897");
         AddNavigation("手柄测试", "test", "\uE7FC");
         AddNavigation("按键映射", "mapping", "\uE8AB");
         AddNavigation("设置与诊断", "settings", "\uE713");
@@ -124,6 +126,7 @@ public sealed partial class MainWindow : Window
             };
             heading.Children.Add(notice);
         }
+        heading.Children.Add(CreateUpdateNotice());
         content.Children.Add(heading); Grid.SetRow(scroll, 1); content.Children.Add(scroll);
         navigation.Content = content; Grid.SetRow(navigation, 1); root.Children.Add(navigation); Content = root;
         controller.Changed += info => DispatcherQueue.TryEnqueue(() => UpdateStatus(info));
@@ -136,7 +139,7 @@ public sealed partial class MainWindow : Window
             if (settings.CloseToTray && tray is not null) NativeMethods.ShowWindow(hwnd, 0);
             else await ExitAsync();
         };
-        Closed += (_, _) => { timer.Stop(); foreach (var cached in cachedPages.Values) cached.Live.Model?.Dispose(); tray?.Dispose(); AppLog.LineWritten -= LogWritten; };
+        Closed += (_, _) => { updateCancellation.Cancel(); timer.Stop(); foreach (var cached in cachedPages.Values) cached.Live.Model?.Dispose(); powerNotifications?.Dispose(); tray?.Dispose(); AppLog.LineWritten -= LogWritten; };
         try { tray = new(hwnd, () => DispatcherQueue.TryEnqueue(() => { NativeMethods.ShowExisting(hwnd); Activate(); }),
             () => DispatcherQueue.TryEnqueue(async () => await ExitAsync()),
             () => DispatcherQueue.TryEnqueue(async () => await SetTrayConnectionAsync(true)),
@@ -151,6 +154,7 @@ public sealed partial class MainWindow : Window
             SelectPage(showGuide ? "setup" : "overview");
             AppLog.Write("info", $"{AppIdentity.DisplayName} v{AppVersion} 已启动 · WinUI 3");
             if (settings.AutoStartConnection && !AppSettings.IsPreview) _ = controller.StartAsync();
+            _ = CheckUpdatesAsync();
         };
     }
 
@@ -275,7 +279,7 @@ public sealed partial class MainWindow : Window
         title.Text = "手柄测试"; subtitle.Text = "每一次按下，都看得见。";
         var instructions = new StackPanel { Spacing = 14, Children = { Text("输入状态", 14, true), badge, statusText, connectButton,
             Text("先在本应用连接手柄，再按键或拨动摇杆，检测会自动开始。其他连接工具应先断开这只手柄。", 12, false, AppPalette.Muted),
-            Text("Xbox 游戏输出", 12, true), xboxButtons } };
+            Text("游戏输入 · Xbox 键名", 12, true), xboxButtons } };
         var model = new StackPanel { Spacing = 8, Children = { controllerView,
             Text("按键亮起 · 摇杆随输入移动", 11, false, AppPalette.Muted), inputText } };
         page.Children.Add(Columns(Card(model, 12), Card(instructions, 20), 2.15, 1));
@@ -289,6 +293,7 @@ public sealed partial class MainWindow : Window
         page.Children.Add(Columns(StickCard("左摇杆", leftPlot, leftValues, leftOutput, leftOffset), StickCard("右摇杆", rightPlot, rightValues, rightOutput, rightOffset), 1, 1));
         page.Children.Add(Columns(TriggerCard("ZL · 左扳机", leftTrigger, live.leftTriggerState), TriggerCard("ZR · 右扳机", rightTrigger, live.rightTriggerState), 1, 1));
         page.Children.Add(Text("中心偏移请在松开摇杆后观察；数字扳机只有按下和松开两种状态。", 12, false, AppPalette.Muted));
+        page.Children.Add(RumbleTestCard());
     }
 
     private void BuildMappingPage()
@@ -322,6 +327,9 @@ public sealed partial class MainWindow : Window
         behavior.Children.Add(trayToggle); behavior.Children.Add(auto);
         behavior.Children.Add(Text("需要保持连接时，也可使用窗口的最小化按钮。后台运行开启后，可从托盘菜单完全退出。", 12, false, AppPalette.Muted));
         page.Children.Add(Card(behavior, 24));
+        page.Children.Add(RumbleSettingsCard());
+        page.Children.Add(HapticBackendOptions());
+        page.Children.Add(UpdateSettingsCard());
         var advanced = new StackPanel { Spacing = 14, Children = {
             Text("应用会自动记住连接过的手柄。只有指定其他手柄或排查连接问题时才需要修改；留空可重新发现。", 12, false, AppPalette.Muted) } };
         var target = new TextBox { Header = "指定手柄蓝牙地址", Text = settings.LastControllerAddress, PlaceholderText = "留空时连接首个处于 SYNC 的 Pro 手柄" };
@@ -375,7 +383,7 @@ public sealed partial class MainWindow : Window
         diagnostics.Children.Add(tools);
         diagnostics.Children.Add(result); logBox.Text = string.Join(Environment.NewLine, logLines); diagnostics.Children.Add(logBox);
         page.Children.Add(Card(diagnostics, 24));
-        page.Children.Add(Text("当前支持按键、摇杆、电量和充电状态。震动、体感和耳机音频暂未支持。", 12, false, AppPalette.Muted));
+        page.Children.Add(Text("支持按键、摇杆、电量、充电状态及通用游戏震动。原生触觉增强仍在验证；体感和耳机音频暂未支持。", 12, false, AppPalette.Muted));
     }
 
     private void RefreshAddressEditor()
@@ -397,6 +405,9 @@ public sealed partial class MainWindow : Window
     private async Task BeginConnectionAsync()
     {
         if (exiting || !controller.Info.CanStart) return;
+        if (settings.OutputMode == GameOutputMode.DualSenseExperimental) {
+            await controller.StartAsync(); return; // This backend validates its own driver/device path.
+        }
         var report = await PrerequisiteService.CheckAsync();
         if (exiting || !controller.Info.CanStart) return;
         if (!report.Ready) {
@@ -450,11 +461,12 @@ public sealed partial class MainWindow : Window
             ConnectionPhase.Error => "游戏输出未就绪",
             _ => "连接后启用游戏输出"
         };
-        live.outputStatus.Text = outputState + " · Xbox 360 / XInput";
+        live.outputStatus.Text = outputState + " · " + controller.OutputName;
         live.outputDot.Background = Brush(info.Phase == ConnectionPhase.Connected ? AppPalette.Accent : "AAAAAA");
     }
     private void UpdateLiveInput()
     {
+        UpdateRumbleStatus();
         bool hasInput = controller.Input is not null;
         if (!hasInput && hadLiveInput) {
             foreach (var cached in cachedPages.Values) { cached.Live.leftPlot.Clear(); cached.Live.rightPlot.Clear(); }
@@ -501,7 +513,8 @@ public sealed partial class MainWindow : Window
     }
     private void ChangeLayout(ButtonLayout layout) { settings.Layout = layout; SaveSettings(); AppLog.Write("info", "映射预设：" + (layout == ButtonLayout.Labels ? "Nintendo 布局 · 字母对应" : "Xbox 布局 · 位置对应")); }
     private void SaveSettings() { try { settings.Save(); } catch (Exception error) { AppLog.Write("error", "保存设置失败：" + error.Message); } }
-    private void SelectPage(string tag) => navigation.SelectedItem = navigation.MenuItems.OfType<NavigationViewItem>().First(x => (string)x.Tag == tag);
+    private void SelectPage(string tag) => navigation.SelectedItem = navigation.MenuItems.Concat(navigation.FooterMenuItems)
+        .OfType<NavigationViewItem>().First(x => Equals(x.Tag, tag));
     private void LogWritten(string line) => DispatcherQueue.TryEnqueue(() => { logLines.Enqueue(line); while (logLines.Count > 80) logLines.Dequeue(); if (selectedPage == "settings") logBox.Text = string.Join(Environment.NewLine, logLines); });
     private async Task ShowInfoAsync(string heading, string description) => await new ContentDialog { Title = heading, Content = description, CloseButtonText = "知道了", XamlRoot = ((FrameworkElement)Content).XamlRoot }.ShowAsync();
     private async Task ExitAsync()

@@ -1,6 +1,17 @@
 using NS2Pro.Core;
 using System.Runtime.InteropServices;
 
+if (args.Contains("--probe-feedback")) { await FeedbackProbe.RunAsync(); return; }
+if (args.Contains("--probe-updates")) {
+    Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(await new NS2Pro.App.Services.UpdateService().CheckAsync(typeof(NS2Pro.App.Services.UpdateService).Assembly.GetName().Version!)));
+    return;
+}
+if (args.Contains("--probe-viiper")) {
+    try { Console.WriteLine(await NS2Pro.App.Services.ViiperGamepad.ProbeAsync()); }
+    catch (Exception error) { Console.WriteLine("UNAVAILABLE: " + error.Message); Environment.ExitCode = 2; }
+    return;
+}
+
 if (OperatingSystem.IsWindows() && SingleInstanceChecks.RunProbe(args) is int probeResult) {
     Environment.ExitCode = probeResult; return;
 }
@@ -124,4 +135,7 @@ Check(SystemRequirements.GetIssue(new Version(10,0,26100),Architecture.X64) is n
 Check(SystemRequirements.GetIssue(new Version(10,0,26100),Architecture.Arm64) is not null, "Untested ARM64 is not advertised as supported");
 Check(SystemRequirements.GetIssue(new Version(10,0,26100),Architecture.X86) is not null, "32-bit Windows rejected");
 if (OperatingSystem.IsWindows()) passed += SingleInstanceChecks.Run();
-Console.WriteLine($"PASS: {passed} protocol, settings and single-instance checks.");
+passed += await HapticChecks.RunAsync();
+passed += await NativeHapticChecks.RunAsync();
+passed += await UpdateChecks.RunAsync();
+Console.WriteLine($"PASS: {passed} protocol, settings, haptics, updates and single-instance checks.");

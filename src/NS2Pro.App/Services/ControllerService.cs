@@ -20,8 +20,24 @@ public sealed class ControllerService(AppSettings settings)
     private readonly SemaphoreSlim lifecycle = new(1, 1);
     private volatile ConnectionInfo info = new(ConnectionPhase.Idle, "");
     private volatile ControllerInput? input;
+    private volatile HapticSession? haptics;
+    private volatile string hapticMessage = "连接手柄后可测试震动";
+    private volatile bool systemSuspended;
+    private GameOutputMode activeOutputMode;
+    public string OutputName => activeOutputMode == GameOutputMode.DualSenseExperimental ? "DualSense · 实验性触觉" : "Xbox 360 / XInput";
     public ConnectionInfo Info => info;
     public ControllerInput? Input => input;
+    public HapticStatus Haptics => haptics?.Status ?? new(false, settings.RumbleEnabled, false, false,
+        info.HasLink ? hapticMessage : "连接手柄后可测试震动", 0, 0, 0, 0, 0, 0);
+    public void ConfigureRumble() => haptics?.Configure(settings.RumbleEnabled, settings.RumbleStrength);
+    public bool TestRumble(HapticTest pattern) => haptics?.BeginTest(pattern) == true;
+    public void StopRumble() => haptics?.Stop();
+    public void SetSystemSuspended(bool value)
+    {
+        systemSuspended = value;
+        haptics?.SetInputAvailable(false);
+        AppLog.Write("info", value ? "系统即将休眠，停止震动" : "系统已恢复，清除旧震动，等待新反馈");
+    }
     public event Action<ConnectionInfo>? Changed;
 
     private void Publish(ConnectionPhase phase, string message, string? address = null, double hertz = 0, long reports = 0)
@@ -38,6 +54,7 @@ public sealed class ControllerService(AppSettings settings)
             if (running is { IsCompleted: false }) return;
             cancellation?.Dispose();
             cancellation = new();
+            activeOutputMode = settings.OutputMode;
             running = Task.Run(() => RunAsync(cancellation.Token));
         } finally { lifecycle.Release(); }
     }
@@ -80,7 +97,8 @@ public sealed class ControllerService(AppSettings settings)
             Publish(ConnectionPhase.Preparing, "正在检查蓝牙与虚拟手柄…");
             AppLog.Write("info", await CheckBluetoothAsync(true));
             // Verify the installed driver without retaining a virtual device while scanning.
-            VirtualGamepad.EnsureDriverAvailable();
+            if (activeOutputMode == GameOutputMode.Xbox) VirtualGamepad.EnsureDriverAvailable();
+            else AppLog.Write("info", await ViiperGamepad.ProbeAsync(settings.ViiperPort, token));
             bool reconnecting = false;
             while (!token.IsCancellationRequested) {
                 Publish(ConnectionPhase.Searching, reconnecting ? "连接已断开，请长按顶部 SYNC 重新连接" : "长按手柄顶部 SYNC，直到指示灯循环闪烁");
@@ -124,6 +142,7 @@ public sealed class ControllerService(AppSettings settings)
     {
         string mac = FormatAddress(address);
         Publish(ConnectionPhase.Connecting, "正在建立临时蓝牙连接…", mac);
+        hapticMessage = "正在连接震动通道…";
         AppLog.Write("info", $"发现 SYNC 广播，连接 {mac}；保留原有主机配对");
         using var device = await BluetoothLEDevice.FromBluetoothAddressAsync(address).AsTask().WaitAsync(TimeSpan.FromSeconds(15), token)
             ?? throw new InvalidOperationException("无法打开蓝牙手柄，请再长按一次 SYNC");
@@ -142,7 +161,26 @@ public sealed class ControllerService(AppSettings settings)
         var response = Find(ResponseUuid);
         var reportCharacteristic = Find(InputUuid);
         var calibration = await ReadCalibrationsAsync(command, response, token);
-        using var output = new VirtualGamepad();
+        using IGameOutput output = activeOutputMode == GameOutputMode.Xbox ? new VirtualGamepad() :
+            await ViiperGamepad.CreateAsync(settings.ViiperPort, token);
+        HapticSession? rumble = null;
+        var vibration = characteristics.Characteristics.FirstOrDefault(x => x.Uuid == HapticProtocol.BluetoothUuid);
+        if (vibration is not null && output.FeedbackAvailable &&
+            vibration.CharacteristicProperties.HasFlag(GattCharacteristicProperties.WriteWithoutResponse)) {
+            rumble = new HapticSession(async (packet, cancellationToken) => {
+                using var writer = new DataWriter(); writer.WriteBytes(packet);
+                var result = await vibration.WriteValueAsync(writer.DetachBuffer(), GattWriteOption.WriteWithoutResponse).AsTask(cancellationToken);
+                if (result != GattCommunicationStatus.Success) throw new IOException("蓝牙震动写入失败：" + result);
+            }, settings.RumbleEnabled, settings.RumbleStrength, text => AppLog.Write("warn", text));
+            haptics = rumble;
+            output.RumbleChanged += rumble.SubmitXbox;
+            if (output is ViiperGamepad native) native.NativeHaptics += rumble.SubmitRich;
+            AppLog.Write("info", "游戏震动反馈已注册 · 独立 BLE 写入 · 保留主机配对");
+        } else {
+            hapticMessage = vibration is null ? "手柄未提供震动通道，按键连接可继续使用" :
+                !output.FeedbackAvailable ? "游戏震动回调不可用，按键连接可继续使用" : "手柄震动通道不可写入，按键连接可继续使用";
+            AppLog.Write("warn", hapticMessage);
+        }
         var disconnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         device.ConnectionStatusChanged += (_, _) => {
             if (device.ConnectionStatus == BluetoothConnectionStatus.Disconnected) disconnected.TrySetResult();
@@ -161,6 +199,9 @@ public sealed class ControllerService(AppSettings settings)
                 try {
                     var decoded = ControllerProtocol.Decode(ReadBuffer(args.CharacteristicValue), calibration[0], calibration[1], settings.Layout, settings.Deadzone);
                     output.Update(decoded.Xbox);
+                    if (Stopwatch.GetElapsedTime(Interlocked.Read(ref lastTicks)).TotalSeconds > 1)
+                        rumble?.SetInputAvailable(false);
+                    rumble?.SetInputAvailable(!systemSuspended);
                     var previous = input;
                     input = decoded;
                     if (previous is null || previous.IsCharging != decoded.IsCharging || previous.HasExternalPower != decoded.HasExternalPower)
@@ -184,14 +225,14 @@ public sealed class ControllerService(AppSettings settings)
             settings.LastControllerAddress = mac;
             try { settings.Save(); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException) { AppLog.Write("warn", "手柄已连接，但无法记住地址：" + error.Message); }
-            AppLog.Write("info", "蓝牙与 Xbox 360 输出已连接，未写入配对资料");
+            AppLog.Write("info", $"蓝牙与 {OutputName} 输出已连接，未写入配对资料");
             long subscribedAt = Stopwatch.GetTimestamp(), lastPublishedAt = subscribedAt, lastCount = 0;
             while (!token.IsCancellationRequested && !disconnected.Task.IsCompleted) {
                 await Task.Delay(250, token);
                 bool receiving;
                 lock (outputGate) {
                     receiving = input is not null && Stopwatch.GetElapsedTime(Interlocked.Read(ref lastTicks)).TotalSeconds <= 1;
-                    if (!receiving) { output.Update(default); input = null; }
+                    if (!receiving) { output.Update(default); input = null; rumble?.SetInputAvailable(false); }
                 }
                 long total = Interlocked.Read(ref count), now = Stopwatch.GetTimestamp();
                 if (total == 0 && Stopwatch.GetElapsedTime(subscribedAt, now).TotalSeconds > 10)
@@ -203,8 +244,21 @@ public sealed class ControllerService(AppSettings settings)
             }
             if (disconnected.Task.IsCompleted) await disconnected.Task;
         } finally {
-            lock (outputGate) { accepting = false; output.Update(default); input = null; }
+            lock (outputGate) {
+                accepting = false; input = null;
+                // A failed optional backend must not prevent the physical stop/GATT cleanup.
+                try { output.Update(default); }
+                catch (Exception error) { AppLog.Write("warn", "清除游戏输入时输出已断开：" + error.Message); }
+            }
             reportCharacteristic.ValueChanged -= Received;
+            if (rumble is not null) {
+                output.RumbleChanged -= rumble.SubmitXbox;
+                if (output is ViiperGamepad native) native.NativeHaptics -= rumble.SubmitRich;
+                await rumble.DisposeAsync(); // bounded final stop while GATT/session are still alive
+                var statistics = rumble.Status;
+                AppLog.Write("info", $"本次震动：反馈 {statistics.Feedback} 次 · 写入 {statistics.Writes} 次 · 合并 {statistics.Coalesced} 次 · 最慢写入 {statistics.MaxWriteMilliseconds:F1} ms");
+            }
+            haptics = null; hapticMessage = "连接手柄后可测试震动";
             try { await reportCharacteristic.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.None).AsTask().WaitAsync(TimeSpan.FromSeconds(2)); }
             catch (Exception) { }
             if (session is not null) session.MaintainConnection = false;

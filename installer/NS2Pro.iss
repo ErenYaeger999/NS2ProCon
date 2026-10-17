@@ -7,9 +7,12 @@
 #ifndef AppDisplayName
   #error AppDisplayName is required
 #endif
+#ifndef AppGuid
+  #define AppGuid "C9638C50-B604-4185-A798-2B034C74847D"
+#endif
 
 [Setup]
-AppId={{C9638C50-B604-4185-A798-2B034C74847D}
+AppId={{{#AppGuid}}
 AppName={#AppDisplayName}
 AppVersion={#AppVersion}
 AppPublisher={#AppDisplayName}
@@ -18,11 +21,17 @@ AppContact=945558278@qq.com
 DefaultDirName={autopf}\{#AppDisplayName}
 DefaultGroupName={#AppDisplayName}
 DisableProgramGroupPage=yes
+; Stable AppId + these options update an existing installation in place.
+UsePreviousAppDir=yes
+DisableDirPage=auto
+AlwaysShowDirOnReadyPage=yes
+UsePreviousGroup=yes
 ArchitecturesAllowed=x64os
 ArchitecturesInstallIn64BitMode=x64os
 MinVersion=10.0.19041
 PrivilegesRequired=admin
-PrivilegesRequiredOverridesAllowed=commandline
+PrivilegesRequiredOverridesAllowed=dialog
+UsePreviousPrivileges=yes
 OutputDir={#SourcePath}..\artifacts\release
 OutputBaseFilename=NS2Pro-{#AppVersion}-win-x64-setup
 SetupIconFile={#PublishDir}\Assets\App.ico
@@ -63,6 +72,30 @@ Filename: "{app}\NS2Pro.exe"; Description: "打开{#AppDisplayName}，开始连�
 [Code]
 var
   DriverNeedsRestart: Boolean;
+  UpdatingExistingInstall: Boolean;
+
+procedure InitializeWizard;
+var
+  UninstallKey: String;
+  RootKey: Integer;
+begin
+  UninstallKey := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{{#AppGuid}}_is1';
+  if IsAdminInstallMode then RootKey := HKLM64 else RootKey := HKCU64;
+  UpdatingExistingInstall := RegKeyExists(RootKey, UninstallKey);
+end;
+
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := UpdatingExistingInstall and ((PageID = wpInfoBefore) or (PageID = wpSelectDir) or (PageID = wpSelectTasks));
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if UpdatingExistingInstall and (CurPageID = wpReady) then begin
+    WizardForm.ReadyLabel.Caption := '检测到已安装的{#AppDisplayName}，将更新到 v{#AppVersion}。沿用原安装位置、快捷方式和用户设置。';
+    WizardForm.NextButton.Caption := '更新(&U)';
+  end;
+end;
 
 function CanLaunch: Boolean;
 begin
@@ -80,18 +113,19 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ExitCode: Integer;
   DriverPath: String;
+  Started: Boolean;
 begin
   Result := '';
   if RegKeyExists(HKLM64, 'SYSTEM\CurrentControlSet\Services\ViGEmBus') then exit;
-  if not IsAdminInstallMode then begin
-    Result := '安装游戏手柄驱动需要管理员权限。请重新运行安装包并允许管理员权限。';
-    exit;
-  end;
   WizardForm.PreparingLabel.Caption := '正在安装游戏手柄驱动，请稍候…';
   ExtractTemporaryFile('ViGEmBus_1.22.0_x64_x86_arm64.exe');
   DriverPath := ExpandConstant('{tmp}\ViGEmBus_1.22.0_x64_x86_arm64.exe');
-  if not Exec(DriverPath, '/exenoui /qn /norestart', '', SW_HIDE, ewWaitUntilTerminated, ExitCode) then begin
-    Result := '无法启动官方驱动安装程序。请检查管理员权限后重试。';
+  if IsAdminInstallMode then
+    Started := Exec(DriverPath, '/exenoui /qn /norestart', '', SW_HIDE, ewWaitUntilTerminated, ExitCode)
+  else
+    Started := ShellExec('runas', DriverPath, '/exenoui /qn /norestart', '', SW_HIDE, ewWaitUntilTerminated, ExitCode);
+  if not Started then begin
+    Result := '无法启动官方驱动安装程序。安装驱动需要管理员权限，请允许权限提示后重试。';
     exit;
   end;
   case ExitCode of

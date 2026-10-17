@@ -3,6 +3,8 @@ using System.Text.Json;
 
 namespace NS2Pro.App.Services;
 
+public enum GameOutputMode { Xbox, DualSenseExperimental }
+
 public sealed class AppSettings
 {
     private static readonly object FileGate = new();
@@ -14,6 +16,10 @@ public sealed class AppSettings
     public string Theme { get; set; } = "Light";
     public bool CloseToTray { get; set; }
     public bool AutoStartConnection { get; set; }
+    public bool RumbleEnabled { get; set; } = true;
+    public double RumbleStrength { get; set; } = .65;
+    public GameOutputMode OutputMode { get; set; }
+    public int ViiperPort { get; set; } = 3242;
     public string LastControllerAddress { get; set; } = "";
     public bool HasCompletedFirstConnection { get; set; }
     public bool HasSeenConnectionGuide { get; set; }
@@ -29,6 +35,9 @@ public sealed class AppSettings
         ConnectionNoticeDismissCount = Math.Clamp(ConnectionNoticeDismissCount, 0, 3);
         if (!Enum.IsDefined(Layout)) Layout = ButtonLayout.Labels;
         Deadzone = double.IsFinite(Deadzone) ? Math.Clamp(Deadzone, 0, .3) : .06;
+        RumbleStrength = double.IsFinite(RumbleStrength) ? Math.Clamp(RumbleStrength, 0, 1) : .65;
+        if (!Enum.IsDefined(OutputMode)) OutputMode = GameOutputMode.Xbox;
+        ViiperPort = Math.Clamp(ViiperPort, 1024, 65535);
         LastControllerAddress = (LastControllerAddress ?? "").Trim().ToUpperInvariant();
         if (LastControllerAddress.Length > 0 && !System.Text.RegularExpressions.Regex.IsMatch(LastControllerAddress, "^([0-9A-F]{2}:){5}[0-9A-F]{2}$"))
             LastControllerAddress = "";
