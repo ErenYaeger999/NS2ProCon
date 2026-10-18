@@ -10,6 +10,7 @@ public sealed partial class MainWindow
     private Button? updateButton;
     private TextBlock? updateResult;
     private Task<UpdateCheckResult>? updateCheck;
+    private readonly UpdateService updateService = new();
     private readonly CancellationTokenSource updateCancellation = new();
     private string updateMessage = "启动后自动检查正式版更新。";
 
@@ -47,9 +48,10 @@ public sealed partial class MainWindow
         if (updateResult is not null) updateResult.Text = updateMessage;
         try {
             if (updateCheck is null || updateCheck.IsCompleted)
-                updateCheck = Task.Run(() => new UpdateService().CheckAsync(typeof(MainWindow).Assembly.GetName().Version!, updateCancellation.Token));
+                updateCheck = Task.Run(() => updateService.CheckAsync(typeof(MainWindow).Assembly.GetName().Version!, updateCancellation.Token));
             var result = await updateCheck;
             if (exiting) return;
+            if (result.Detail is { } detail) AppLog.Write(result.State == UpdateCheckState.Unavailable ? "warn" : "info", "检查更新：" + detail);
             ShowUpdateResult(result);
         } finally { if (updateButton is not null) updateButton.IsEnabled = true; }
     }

@@ -10,7 +10,7 @@
 
 通过蓝牙把 Nintendo Switch 2 Pro Controller 无线连接到 Windows，默认输出为 Xbox 360 / XInput 手柄，保留原有 NS2 配对。
 
-[下载 v0.8.5 安装版（Windows x64）](https://github.com/ErenYaeger999/NS2ProCon/releases/download/v0.8.5/NS2Pro-0.8.5-win-x64-setup.exe) · [全部版本与附件](https://github.com/ErenYaeger999/NS2ProCon/releases)
+[下载 v0.8.6 安装版（Windows x64）](https://github.com/ErenYaeger999/NS2ProCon/releases/download/v0.8.6/NS2Pro-0.8.6-win-x64-setup.exe) · [全部版本与附件](https://github.com/ErenYaeger999/NS2ProCon/releases)
 
 <p align="center">
   <img src="docs/images/overview.png" width="1000" alt="NS2Pro手柄PC连接器实际运行界面：手柄已连接，A 键实时高亮，输入频率 66 Hz，电量 50%">
@@ -38,7 +38,7 @@
 
 运行 `NS2Pro-版本-win-x64-setup.exe` 完成安装，再打开桌面或开始菜单入口。为所有用户安装以及安装缺少的官方驱动时需要管理员权限；已有 ViGEmBus 时跳过驱动安装，当前用户安装仅在缺少驱动时为驱动安装器提权。若提示重启，请重启后再连接。日常使用无需管理员权限。
 
-下载新版安装包并退出应用后运行，安装器将沿用原安装位置、安装范围和快捷方式，保留个人设置。便携版未登记安装位置，需自行解压覆盖到原文件夹。检查更新失败或离线时不影响使用。
+下载新版安装包并退出应用后运行，安装器将沿用原安装位置、安装范围和快捷方式，保留个人设置。便携版未登记安装位置，需自行解压覆盖到原文件夹。更新检查在 GitHub API 限流或不可用时会尝试官方 Release 入口；无需登录，失败或离线时不影响使用。
 
 应用只运行一个实例。旧版仍在后台时，打开另一份程序会返回旧窗口并提示退出；先从托盘选择「断开并退出」，再打开新版即可。已安装的增强组件会保留，新版会检测并复用兼容组件。
 
@@ -86,7 +86,7 @@
 
 ## 空间占用
 
-v0.8.5 大小（MiB，取整）：
+v0.8.6 大小（MiB，取整）：
 
 | 内容 | 大小 |
 | --- | ---: |

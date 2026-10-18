@@ -8,7 +8,9 @@ if (OperatingSystem.IsWindows() && args.Contains("--probe-audio")) {
     return;
 }
 if (args.Contains("--probe-updates")) {
-    Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(await new NS2Pro.App.Services.UpdateService().CheckAsync(typeof(NS2Pro.App.Services.UpdateService).Assembly.GetName().Version!)));
+    var updates = new NS2Pro.App.Services.UpdateService();
+    for (int attempt = 0; attempt < (args.Contains("--repeat") ? 2 : 1); attempt++)
+        Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(await updates.CheckAsync(typeof(NS2Pro.App.Services.UpdateService).Assembly.GetName().Version!)));
     return;
 }
 if (args.Contains("--probe-viiper")) {
