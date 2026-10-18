@@ -17,6 +17,7 @@ public sealed class ConnectionGuideView : UserControl
     private readonly TextBlock environmentStatus = Label("正在检查电脑…", 12);
     private readonly TextBlock connectionStatus = Label("环境就绪后，点击开始连接。", 13);
     private readonly TextBlock confirmation = Label("收到手柄输入后，这一步会自动完成。", 13);
+    private readonly TextBlock outputHelp = Label("", 13);
     private readonly TextBlock scanHelp = Label("请保持手柄靠近电脑。无需在 Windows 蓝牙页面里手动配对。", 12);
     private readonly Button refresh = new() { Content = "重新检查" };
     private readonly Button driver = new() { Content = "安装手柄驱动", Visibility = Visibility.Collapsed };
@@ -73,12 +74,13 @@ public sealed class ConnectionGuideView : UserControl
         var overview = new Button { Content = "进入总览" }; overview.Click += (_, _) => openOverview();
         content.Children.Add(Card(new StackPanel { Spacing = 14, Children = {
             Heading("3", "确认按键和摇杆"), confirmation,
-            Label("连接成功后，按几下 A / B 并转动双摇杆。测试页会实时显示输入，游戏会识别为 Xbox 360 手柄。", 13),
+            outputHelp,
             new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = { test, overview } }
         } }));
         Content = content;
         refresh.Click += async (_, _) => await RefreshEnvironmentAsync();
         driver.Click += async (_, _) => {
+            if (controller.Info.IsActive) { environmentStatus.Text = "请先断开手柄，再安装驱动。"; return; }
             driver.IsEnabled = false;
             try { environmentStatus.Text = await PrerequisiteService.InstallDriverAsync(); }
             catch (System.ComponentModel.Win32Exception error) when (error.NativeErrorCode == 1223) { environmentStatus.Text = "已取消安装。需要游戏输出时，可再次安装驱动。"; }
@@ -100,7 +102,7 @@ public sealed class ConnectionGuideView : UserControl
         if (checking) return;
         checking = true; refresh.IsEnabled = start.IsEnabled = false; environmentStatus.Text = "正在检查电脑…";
         try {
-            report = await PrerequisiteService.CheckAsync();
+            report = await PrerequisiteService.CheckAsync(settings.RequestedOutput);
             checks.Children.Clear();
             foreach (var item in report.Items) {
                 checks.Children.Add(new StackPanel { Spacing = 3, Children = {
@@ -108,8 +110,8 @@ public sealed class ConnectionGuideView : UserControl
                     Label(item.Detail, 12)
                 } });
             }
-            environmentStatus.Text = report.Ready ? "环境已就绪，可以连接手柄。" : "请先处理上方未通过的项目，再点击重新检查。";
-            driver.Visibility = report.Driver.Ready ? Visibility.Collapsed : Visibility.Visible;
+            environmentStatus.Text = report.Ready ? "基础环境已就绪，可以开始连接。" : "请先处理上方未通过的项目，再点击重新检查。";
+            driver.Visibility = report.Driver.Ready || PrerequisiteService.RestartRequired || PrerequisiteService.Installing ? Visibility.Collapsed : Visibility.Visible;
         } catch (Exception error) { report = null; environmentStatus.Text = "检查未完成：" + error.Message; }
         finally { checking = false; refresh.IsEnabled = true; Update(controller.Info, controller.Input); }
     }
@@ -117,13 +119,22 @@ public sealed class ConnectionGuideView : UserControl
     public void Update(ConnectionInfo info, ControllerInput? input)
     {
         bool active = info.IsActive;
-        start.IsEnabled = !checking && report?.Ready == true && !active;
+        var mode = active ? controller.ActiveOutputMode : settings.RequestedOutput;
+        outputHelp.Text = "连接成功后，按几下 A / B 并转动双摇杆，测试页会实时显示输入。游戏识别为" +
+            (mode == GameOutputMode.DualSenseExperimental ? " DualSense；可能显示 PS 按键图标。" : " Xbox 360 手柄。");
+        driver.IsEnabled = !active && !PrerequisiteService.Installing;
+        start.IsEnabled = !checking && report?.Ready == true && !active && !PrerequisiteService.Installing &&
+            !(settings.RequestedOutput == GameOutputMode.Xbox && PrerequisiteService.RestartRequired);
         start.Visibility = active ? Visibility.Collapsed : Visibility.Visible;
         start.Content = info.Phase == ConnectionPhase.Error ? "重试连接" : "开始连接";
         stop.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
         stop.IsEnabled = info.Phase != ConnectionPhase.Stopping;
         stop.Content = info.ActionText;
         connectionStatus.Text = info.Phase == ConnectionPhase.Idle ? "环境就绪后，点击开始连接。" : info.Message;
+        if (PrerequisiteService.RestartRequired && settings.RequestedOutput == GameOutputMode.Xbox) {
+            environmentStatus.Text = "驱动已安装，请重启电脑后连接，无需重复安装。";
+            driver.Visibility = Visibility.Collapsed;
+        }
         confirmation.Text = input is not null ? "✓ 已收到真实输入，可以开始游戏或检查按键。" : settings.HasCompletedFirstConnection ? "✓ 已完成过首次连接。可重新连接手柄，或打开测试页。" : "收到手柄输入后，这一步会自动完成。";
         if (info.Phase == ConnectionPhase.Searching && previousPhase != ConnectionPhase.Searching) {
             searchStarted = DateTimeOffset.Now;

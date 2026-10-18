@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
 using Microsoft.Win32;
+using System.Security.Cryptography;
 
 namespace NS2Pro.App.Services;
 
@@ -124,7 +125,7 @@ public sealed class EnhancementService(Func<int, CancellationToken, Task> valida
     private async Task StartOwnedAsync(CancellationToken token)
     {
         if (backend is not null && !backend.Process.HasExited) { await ViiperGamepad.ProbeAsync(EnhancementComponents.ApiPort, token); return; }
-        backend?.Dispose(); backend = null; hostVerified = false;
+        ResetOwned();
         if (!await EnhancementComponents.HashMatchesAsync(BackendPath, EnhancementComponents.BackendExeHash, token)) throw new IOException("增强程序校验失败，请重新安装组件。");
         foreach (int port in new[] { EnhancementComponents.ApiPort, EnhancementComponents.UsbPort }) {
             var listener = new TcpListener(IPAddress.Loopback, port);
@@ -132,14 +133,17 @@ public sealed class EnhancementService(Func<int, CancellationToken, Task> valida
             finally { listener.Stop(); }
         }
         Set(EnhancementPhase.Starting, "正在启动触觉后端…");
+        string privateDirectory = Path.Combine(Root, "Private");
+        string password = BackendAccess.CreatePrivateKey(privateDirectory);
         string config = Path.Combine(Root, "server.json"); File.WriteAllText(config, "{}");
         var start = new ProcessStartInfo(BackendPath) { UseShellExecute = false, CreateNoWindow = true,
             WindowStyle = ProcessWindowStyle.Hidden, RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = Root };
         foreach (string key in start.Environment.Keys.Where(k => k.StartsWith("VIIPER_", StringComparison.OrdinalIgnoreCase)).ToArray()) start.Environment.Remove(key);
-        foreach (string argument in new[] { "--config-only", "--config", config, "--log.file=", "--log.raw-file=", "server", "--key-file", Path.Combine(Root, "backend.key"),
+        foreach (string argument in new[] { "--config-only", "--config", config, "--log.file=", "--log.raw-file=", "server", "--key-file", Path.Combine(privateDirectory, "backend.key"),
             "--usb.addr=127.0.0.1:" + EnhancementComponents.UsbPort, "--api.addr=127.0.0.1:" + EnhancementComponents.ApiPort,
-            "--api.require-local-host-auth=false", "--api.auto-attach-local-client=true", "--api.auto-attach-windows-native=true" }) start.ArgumentList.Add(argument);
+            "--api.require-local-host-auth=true", "--api.auto-attach-local-client=true", "--api.auto-attach-windows-native=true" }) start.ArgumentList.Add(argument);
         backend = new OwnedBackendProcess(start);
+        BackendAccess.Register(backend.Process.Id, password);
         var clock = Stopwatch.StartNew();
         while (clock.Elapsed < TimeSpan.FromSeconds(25)) {
             token.ThrowIfCancellationRequested();
@@ -147,6 +151,7 @@ public sealed class EnhancementService(Func<int, CancellationToken, Task> valida
             try {
                 string identity = await ViiperGamepad.ProbeAsync(EnhancementComponents.ApiPort, token);
                 if (!identity.Contains(EnhancementComponents.BackendVersion, StringComparison.Ordinal)) throw new IOException("增强后端版本不匹配");
+                BackendAccess.RequireListener(EnhancementComponents.UsbPort, backend.Process.Id);
                 return;
             } catch (IOException) { await Task.Delay(200, token); }
         }
@@ -168,7 +173,7 @@ public sealed class EnhancementService(Func<int, CancellationToken, Task> valida
         try { return processes.Any(p => !p.HasExited); }
         finally { foreach (var process in processes) process.Dispose(); }
     }
-    private void ResetOwned() { backend?.Dispose(); backend = null; hostVerified = false; }
+    private void ResetOwned() { if (backend is not null) BackendAccess.Clear(); backend?.Dispose(); backend = null; hostVerified = false; }
     public async Task StopOwnedAsync()
     {
         await gate.WaitAsync();
@@ -202,7 +207,7 @@ public sealed class EnhancementService(Func<int, CancellationToken, Task> valida
     public async ValueTask DisposeAsync()
     {
         lifetime.Cancel(); await gate.WaitAsync();
-        try { backend?.Dispose(); backend = null; hostVerified = false; }
+        try { ResetOwned(); }
         finally { gate.Release(); }
     }
 }

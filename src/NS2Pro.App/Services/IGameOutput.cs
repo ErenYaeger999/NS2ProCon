@@ -6,5 +6,6 @@ public interface IGameOutput : IDisposable
 {
     bool FeedbackAvailable { get; }
     event Action<byte, byte>? RumbleChanged;
-    void Update(XboxReport report);
+    event Action<long>? InputForwarded;
+    void Update(XboxReport report, long receivedAt = 0);
 }

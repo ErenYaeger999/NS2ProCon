@@ -1,6 +1,12 @@
 param([string]$OutputDirectory = '', [switch]$SkipPackaging)
 $ErrorActionPreference = 'Stop'
 $ns2Root = Split-Path -Parent $PSScriptRoot
+$ns2SourceCommit = (& git -C $ns2Root rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0) { throw 'A Git checkout is required to identify release sources' }
+$ns2DirtySource = [bool](& git -C $ns2Root status --porcelain)
+if ($ns2DirtySource -and -not $SkipPackaging) {
+    throw 'Commit reviewed source changes before packaging. Use -SkipPackaging for local development checks.'
+}
 $ns2Version = ([xml](Get-Content -LiteralPath (Join-Path $ns2Root 'Directory.Build.props') -Raw)).Project.PropertyGroup.Version | Where-Object { $_ }
 $ns2Name = ([xml](Get-Content -LiteralPath (Join-Path $ns2Root 'Directory.Build.props') -Raw)).Project.PropertyGroup.AppDisplayName | Where-Object { $_ }
 if (-not $ns2Name) { throw 'AppDisplayName is required' }
@@ -101,7 +107,9 @@ if (-not $SkipPackaging) {
 $ns2Inventory = Get-ChildItem -LiteralPath $ns2Publish -Recurse -File | Where-Object { $_.Name -ne 'release-manifest.json' } | ForEach-Object {
     [pscustomobject]@{ Path = [IO.Path]::GetRelativePath($ns2Publish, $_.FullName).Replace('\', '/'); Size = $_.Length; Sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
 }
-[pscustomobject]@{ Version = $ns2Version; Architecture = 'x64'; MinimumWindowsBuild = 19041; Files = @($ns2Inventory) } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $ns2Publish 'release-manifest.json') -Encoding utf8
+if ((& git -C $ns2Root rev-parse HEAD).Trim() -ne $ns2SourceCommit -or
+    (-not $SkipPackaging -and [bool](& git -C $ns2Root status --porcelain))) { throw 'Sources changed during release build; rebuild from the reviewed commit' }
+[pscustomobject]@{ Version = $ns2Version; SourceCommit = $ns2SourceCommit; WorkingTreeDirty = $ns2DirtySource; Architecture = 'x64'; MinimumWindowsBuild = 19041; Files = @($ns2Inventory) } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $ns2Publish 'release-manifest.json') -Encoding utf8
 $ns2ReleaseFolder = Join-Path $ns2Root 'artifacts\release'
 $ns2ReportFolder = if ($SkipPackaging) { Join-Path (Join-Path $ns2Root 'artifacts\checks') (Split-Path -Leaf $ns2Publish) } else { $ns2ReleaseFolder }
 & (Join-Path $PSScriptRoot 'check-release.ps1') -PublishDirectory $ns2Publish -ReportDirectory $ns2ReportFolder

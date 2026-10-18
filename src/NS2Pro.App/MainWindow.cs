@@ -10,6 +10,7 @@ using NS2Pro.Core;
 using System.Diagnostics;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics;
+using Windows.Storage.Pickers;
 
 namespace NS2Pro.App;
 
@@ -65,8 +66,8 @@ public sealed partial class MainWindow : Window
     private TextBox? addressEditor;
     private bool addressDirty, updatingAddress;
     private bool hadLiveInput;
-    private bool startingConnection;
     private string? enhancementFallback;
+    private GameOutputMode CurrentOutputMode => controller.Info.IsActive ? controller.ActiveOutputMode : settings.RequestedOutput;
 
     public MainWindow()
     {
@@ -179,6 +180,7 @@ public sealed partial class MainWindow : Window
         public readonly TextBlock connectionHint = Text("先点击连接，再长按手柄顶部的 SYNC 小键。", 13, false, AppPalette.Muted);
         public readonly TextBlock addressText = Text("蓝牙 LE · 保留 NS2 配对", 12, false, AppPalette.Muted);
         public readonly TextBlock hzText = Text("—", 26, true);
+        public readonly TextBlock forwardingText = Text("—", 26, true);
         public readonly TextBlock batteryText = Text("—", 26, true);
         public readonly BatteryIcon batteryIcon = new();
         public readonly TextBlock batteryState = new() { FontSize = 12, Foreground = Brush(AppPalette.Muted), Visibility = Visibility.Collapsed };
@@ -258,10 +260,14 @@ public sealed partial class MainWindow : Window
     {
         title.Text = "连接总览"; subtitle.Text = "连接 PC，随时回到主机。";
         var hero = new StackPanel { Spacing = 8 };
-        var heroHeader = new Grid(); heroHeader.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); heroHeader.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        var heroHeader = new Grid { ColumnSpacing = 10 }; heroHeader.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); heroHeader.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); heroHeader.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         heroHeader.Children.Add(Text("你的手柄", 12, true, AppPalette.Muted));
         var statusBadge = SyncHint.ForText(badge);
-        Grid.SetColumn(statusBadge, 1); heroHeader.Children.Add(statusBadge); hero.Children.Add(heroHeader);
+        Grid.SetColumn(statusBadge, 1); heroHeader.Children.Add(statusBadge);
+        var replaceController = new HyperlinkButton { Content = "更换手柄", FontSize = 11, Foreground = Brush(AppPalette.Muted), Padding = new(0), VerticalAlignment = VerticalAlignment.Center };
+        replaceController.Click += async (_, _) => await ReplaceControllerAsync();
+        ToolTipService.SetToolTip(replaceController, "清除记住的手柄地址，再长按新手柄的 SYNC 小键。不会修改 NS2 配对。");
+        Grid.SetColumn(replaceController, 2); heroHeader.Children.Add(replaceController); hero.Children.Add(heroHeader);
         hero.Children.Add(Text("Switch 2 Pro Controller", 23, true)); hero.Children.Add(addressText);
         hero.Children.Add(controllerView); hero.Children.Add(SyncHint.ForText(statusText));
         var actions = new StackPanel { Spacing = 15 };
@@ -281,7 +287,9 @@ public sealed partial class MainWindow : Window
         var battery = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 13 };
         live.batteryIcon.VerticalAlignment = VerticalAlignment.Center;
         battery.Children.Add(live.batteryIcon); battery.Children.Add(new StackPanel { Spacing = 2, Children = { batteryText, live.batteryState } });
-        page.Children.Add(Columns(Metric("输入频率", hzText), Metric("手柄电量", battery), 1, 1));
+        ToolTipService.SetToolTip(hzText, "最近 2 秒实际收到的蓝牙输入报告频率。与震动频率不同，也不是游戏帧率。");
+        ToolTipService.SetToolTip(live.forwardingText, "最近 2 秒的中位转发耗时：应用收到输入，到 Xbox 驱动提交或 DualSense 本机网络写入完成，含软件排队。不含无线传输、游戏处理和屏幕显示延迟。");
+        page.Children.Add(Columns(Metric("回报率", hzText), Metric("本机转发耗时", live.forwardingText), 1, 1, Metric("手柄电量", battery)));
         page.Children.Add(Card(MappingPreview(), 16));
         page.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new(3, 0, 0, 2),
             Children = { live.outputDot, live.outputStatus } });
@@ -292,7 +300,7 @@ public sealed partial class MainWindow : Window
         title.Text = "手柄测试"; subtitle.Text = "每一次按下，都看得见。";
         var instructions = new StackPanel { Spacing = 14, Children = { Text("输入状态", 14, true), SyncHint.ForText(badge), SyncHint.ForText(statusText), connectButton,
             Text("先在本应用连接手柄，再按键或拨动摇杆，检测会自动开始。其他连接工具应先断开这只手柄。", 12, false, AppPalette.Muted),
-            Text("游戏输入 · Xbox 键名", 12, true), xboxButtons } };
+            Text("游戏输入 · 逻辑键名", 12, true), xboxButtons } };
         var model = new StackPanel { Spacing = 8, Children = { controllerView,
             Text("按键亮起 · 摇杆随输入移动", 11, false, AppPalette.Muted), inputText } };
         page.Children.Add(Columns(Card(model, 12), Card(instructions, 20), 2.15, 1));
@@ -313,14 +321,14 @@ public sealed partial class MainWindow : Window
     {
         title.Text = "按键映射"; subtitle.Text = "选择 ABXY 布局，立即应用到游戏输出。";
         page.Children.Add(Columns(LayoutCard(ButtonLayout.Labels), LayoutCard(ButtonLayout.Positions), 1, 1));
-        var detail = new StackPanel { Spacing = 14, Children = { Text("通用映射", 17, true), Text("NS2Pro 手柄  →  Xbox 游戏输出", 11, false, AppPalette.Muted) } };
+        var detail = new StackPanel { Spacing = 14, Children = { Text("通用映射", 17, true), Text("NS2Pro 手柄  →  游戏逻辑按键", 11, false, AppPalette.Muted) } };
         detail.Children.Add(Columns(MappingTile("肩键", Keycaps(false, false, "L", "R"), Keycaps(true, false, "LB", "RB")),
             MappingTile("扳机", Keycaps(false, false, "ZL", "ZR"), Keycaps(true, false, "LT", "RT")), 1, 1));
         detail.Children.Add(Columns(MappingTile("菜单", Keycaps(false, false, "+", "−"), Keycaps(true, false, "Start", "Back")),
             MappingTile("摇杆按下", Keycaps(false, true, "L↓", "R↓"), Keycaps(true, true, "LS", "RS")), 1, 1));
         detail.Children.Add(Columns(MappingTile("十字键", DirectionPad(false), DirectionPad(true)),
             MappingTile("双摇杆", Keycaps(false, true, "L", "R"), Keycaps(true, true, "L", "R")), 1, 1));
-        detail.Children.Add(Text("HOME、截图、C、GL / GR 仅用于输入检测，暂未映射到 Xbox 输出。", 11, false, AppPalette.Muted));
+        detail.Children.Add(Text("布局按 ABXY 逻辑键转换；增强模式再转换为 DualSense，游戏图标由游戏决定。HOME、截图、C、GL / GR 仅用于检测，暂未映射到游戏输出。", 11, false, AppPalette.Muted));
         page.Children.Add(Card(detail, 24));
         var deadzone = new StackPanel { Spacing = 10, Children = { Text("摇杆死区", 17, true), Text("轻微中心偏移由死区过滤；可以到手柄测试页查看处理前后的差别。", 12, false, AppPalette.Muted) } };
         var value = Text($"{settings.Deadzone:P0}", 14, true, AppPalette.AccentText);
@@ -373,7 +381,7 @@ public sealed partial class MainWindow : Window
         check.Click += async (_, _) => {
             check.IsEnabled = false;
             try {
-                var report = await PrerequisiteService.CheckAsync();
+                var report = await PrerequisiteService.CheckAsync(settings.RequestedOutput);
                 result.Text = string.Join("\n", report.Items.Select(item => (item.Ready ? "✓ " : "○ ") + item.Name + "：" + item.Detail));
                 AppLog.Write("info", result.Text);
             } catch (Exception error) { result.Text = error.Message; AppLog.Write("error", error.Message); }
@@ -385,15 +393,30 @@ public sealed partial class MainWindow : Window
             catch (Exception error) { result.Text = "未能打开日志文件夹：" + error.Message; }
         };
         var copy = new Button { Content = "复制诊断信息" };
-        copy.Click += (_, _) => {
+        copy.Click += async (_, _) => {
+            copy.IsEnabled = false;
             try {
                 var package = new DataPackage();
-                package.SetText($"{AppIdentity.DisplayName} v{AppVersion}\nWindows: {Environment.OSVersion}\n状态: {controller.Info}\n预设: {settings.Layout}\n死区: {settings.Deadzone:P0}\n\n" + string.Join(Environment.NewLine, logLines));
+                package.SetText(await DiagnosticService.CollectAsync(settings, controller, enhancement, logLines.ToArray()));
                 Clipboard.SetContent(package); result.Text = "诊断信息已复制";
             } catch (Exception error) { result.Text = "未能复制诊断信息：" + error.Message; }
+            finally { copy.IsEnabled = true; }
         };
-        var tools = new VariableSizedWrapGrid { Orientation = Orientation.Horizontal, MaximumRowsOrColumns = 3, ItemWidth = 150, ItemHeight = 44 };
-        foreach (var tool in new[] { check, logs, copy }) { tool.Margin = new(0, 0, 8, 8); tools.Children.Add(tool); }
+        var export = new Button { Content = "导出诊断文件" };
+        export.Click += async (_, _) => {
+            export.IsEnabled = false;
+            try {
+                var picker = new FileSavePicker { SuggestedFileName = "NS2Pro-诊断-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") };
+                picker.FileTypeChoices.Add("诊断文本", new List<string> { ".txt" });
+                WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
+                var file = await picker.PickSaveFileAsync();
+                if (file is not null) { await Windows.Storage.FileIO.WriteTextAsync(file,
+                    await DiagnosticService.CollectAsync(settings, controller, enhancement, logLines.ToArray())); result.Text = "诊断文件已保存，已隐藏用户目录和手柄地址。"; }
+            } catch (Exception error) { result.Text = "未能导出诊断文件：" + error.Message; }
+            finally { export.IsEnabled = true; }
+        };
+        var tools = new VariableSizedWrapGrid { Orientation = Orientation.Horizontal, MaximumRowsOrColumns = 4, ItemWidth = 150, ItemHeight = 44 };
+        foreach (var tool in new[] { check, logs, copy, export }) { tool.Margin = new(0, 0, 8, 8); tools.Children.Add(tool); }
         diagnostics.Children.Add(tools);
         diagnostics.Children.Add(result); logBox.Text = string.Join(Environment.NewLine, logLines); diagnostics.Children.Add(logBox);
         page.Children.Add(Card(diagnostics, 24));
@@ -416,32 +439,19 @@ public sealed partial class MainWindow : Window
             else await BeginConnectionAsync();
         } catch (Exception error) { await ShowInfoAsync("连接操作未完成", error.Message); }
     }
+    private async Task ReplaceControllerAsync()
+    {
+        if (exiting || PrerequisiteService.Installing) return;
+        try {
+            await controller.StopAsync(); settings.LastControllerAddress = ""; SaveSettings(); RefreshAddressEditor();
+            await BeginConnectionAsync();
+        } catch (Exception error) { await ShowInfoAsync("更换手柄未完成", error.Message); }
+    }
     private async Task BeginConnectionAsync()
     {
-        if (exiting || startingConnection || !controller.Info.CanStart) return;
-        startingConnection = true;
-        try {
-            // Pending optional setup must never block an ordinary connection.
-            if (enhancement.Status.Busy && enhancement.Status.Phase != EnhancementPhase.InstallingDriver) {
-                enhancement.Cancel(); await enhancement.WaitForIdleAsync();
-            }
-            if (settings.OutputMode == GameOutputMode.DualSenseExperimental) {
-                if (await enhancement.PrepareAsync(settings)) { await controller.StartAsync(); return; }
-                settings.OutputMode = GameOutputMode.Xbox; settings.PreferNativeHaptics = false; wantsEnhanced = false;
-                enhancementFallback = "增强暂未就绪，本次使用通用兼容。可到设置中继续准备增强环境。";
-                if (gameMode is not null) gameMode.SelectedIndex = 0;
-                SaveSettings();
-            }
-            var report = await PrerequisiteService.CheckAsync();
-            if (exiting || !controller.Info.CanStart) return;
-            if (!report.Ready) {
-                NativeMethods.ShowExisting(WinRT.Interop.WindowNative.GetWindowHandle(this)); Activate();
-                SelectPage("setup");
-                if (connectionGuide is not null) await connectionGuide.RefreshEnvironmentAsync();
-                return;
-            }
-            await controller.StartAsync();
-        } finally { startingConnection = false; lastEnhancementStatus = null; UpdateEnhancementUi(); UpdateOverviewModeHint(); }
+        if (exiting || !controller.Info.CanStart) return;
+        if (PrerequisiteService.Installing) { await ShowInfoAsync("驱动正在安装", "请等待官方安装器完成，再连接手柄。"); return; }
+        await controller.StartAsync();
     }
     private async Task SetTrayConnectionAsync(bool connect)
     {
@@ -479,6 +489,8 @@ public sealed partial class MainWindow : Window
             _ => "先点击连接，再长按手柄顶部的 SYNC 小键。"
         };
         hzText.Text = info.Phase == ConnectionPhase.Connected ? $"{info.Hertz:F0} Hz" : "—";
+        var metrics = controller.Performance;
+        live.forwardingText.Text = info.Phase == ConnectionPhase.Connected && metrics.ForwardMedianMilliseconds is { } latency ? $"{latency:F1} ms" : "—";
         var outputState = info.Phase switch {
             ConnectionPhase.Connected => "游戏输出已就绪",
             ConnectionPhase.WaitingForInput => "游戏输出等待手柄输入",
@@ -487,7 +499,7 @@ public sealed partial class MainWindow : Window
             ConnectionPhase.Error => "游戏输出未就绪",
             _ => "连接后启用游戏输出"
         };
-        live.outputStatus.Text = outputState + " · " + controller.OutputName;
+        live.outputStatus.Text = outputState + " · " + (CurrentOutputMode == GameOutputMode.DualSenseExperimental ? "DualSense · 实验性触觉" : "Xbox 360 / XInput");
         live.outputDot.Background = Brush(info.Phase == ConnectionPhase.Connected ? AppPalette.Accent : "AAAAAA");
     }
     private void UpdateLiveInput()
@@ -554,9 +566,9 @@ public sealed partial class MainWindow : Window
     private async Task ExitAsync()
     {
         if (exiting) return;
-        if (enhancement.Status.Phase == EnhancementPhase.InstallingDriver) {
-            OpenEnhancementSettings();
-            await ShowInfoAsync("增强驱动正在安装", "请等待官方安装器完成后再退出，以便确认安装结果。电脑不会自动重启。"); return;
+        if (enhancement.Status.Phase == EnhancementPhase.InstallingDriver || PrerequisiteService.Installing) {
+            if (PrerequisiteService.Installing) SelectPage("setup"); else OpenEnhancementSettings();
+            await ShowInfoAsync("驱动正在安装", "请等待官方安装器完成后再退出，以便确认安装结果。电脑不会自动重启。"); return;
         }
         exiting = true;
         try { enhancement.Cancel(); await controller.StopAsync(); await enhancement.DisposeAsync(); timer.Stop(); tray?.Dispose(); exitAllowed = true; Close(); }

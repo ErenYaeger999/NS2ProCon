@@ -1,4 +1,5 @@
 using Windows.Devices.Bluetooth;
+using NS2Pro.App.Services;
 
 namespace NS2Pro.App;
 
@@ -15,7 +16,7 @@ public sealed partial class MainWindow
                 var operation = type == BluetoothAddressType.Unspecified ? BluetoothLEDevice.FromBluetoothAddressAsync(address) :
                     BluetoothLEDevice.FromBluetoothAddressAsync(address, type);
                 // A late native result still needs disposing after cancellation/timeout.
-                var device = await operation.AsTask();
+                var device = await NativeOperation.WaitAsync(operation, token, releaseLate: value => value?.Dispose());
                 if (!completion.TrySetResult(device)) device?.Dispose();
             } catch (OperationCanceledException) { completion.TrySetCanceled(token); }
             catch (Exception error) { completion.TrySetException(error); }

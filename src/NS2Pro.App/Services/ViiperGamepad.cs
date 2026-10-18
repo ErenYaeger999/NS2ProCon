@@ -15,20 +15,23 @@ public sealed class ViiperGamepad : IGameOutput
     private readonly object gate = new();
     private readonly int port, bus;
     private readonly TcpClient connection;
+    private readonly Stream channel;
     private readonly CancellationTokenSource cancellation = new();
     private readonly Task reader, writer;
     private XboxReport latest;
+    private long latestReceivedAt, latestGeneration;
     private long rumbleCommands, rumbleStops, nativeBlocks, nativeActiveBlocks;
     private volatile Exception? failure;
     private int disposed;
     public bool FeedbackAvailable => disposed == 0 && failure is null;
     public event Action<byte, byte>? RumbleChanged;
     public event Action<HapticFrame>? NativeHaptics;
+    public event Action<long>? InputForwarded;
     public string FeedbackSummary => $"本次增强反馈：普通指令 {Interlocked.Read(ref rumbleCommands)} 次 · 停止 {Interlocked.Read(ref rumbleStops)} 次 · 原生采样 {Interlocked.Read(ref nativeBlocks)} 块 · 非零 {Interlocked.Read(ref nativeActiveBlocks)} 块";
 
-    private ViiperGamepad(int port, int bus, TcpClient connection)
+    private ViiperGamepad(int port, int bus, TcpClient connection, Stream channel)
     {
-        this.port = port; this.bus = bus; this.connection = connection;
+        this.port = port; this.bus = bus; this.connection = connection; this.channel = channel;
         reader = Task.Run(ReadAsync); writer = Task.Run(WriteAsync);
     }
 
@@ -45,6 +48,7 @@ public sealed class ViiperGamepad : IGameOutput
         await ProbeAsync(port, token);
         int bus = 0;
         TcpClient? stream = null;
+        Stream? channel = null;
         try {
             using (var created = await CommandAsync(port, "bus/create", token)) bus = created.RootElement.GetProperty("busId").GetInt32();
             if (bus <= 0) throw new IOException("触觉后端返回无效的设备总线");
@@ -54,32 +58,38 @@ public sealed class ViiperGamepad : IGameOutput
             stream = new TcpClient { NoDelay = true };
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(TimeSpan.FromSeconds(5));
             await stream.ConnectAsync(IPAddress.Loopback, port, timeout.Token);
-            await stream.GetStream().WriteAsync(Encoding.UTF8.GetBytes($"bus/{bus}/{id}\0"), timeout.Token);
-            return new(port, bus, stream);
+            channel = await BackendAccess.OpenAsync(stream, port, timeout.Token);
+            await channel.WriteAsync(Encoding.UTF8.GetBytes($"bus/{bus}/{id}\0"), timeout.Token);
+            return new(port, bus, stream, channel);
         } catch {
+            channel?.Dispose();
             stream?.Dispose();
             if (bus > 0) { try { using var removed = await CommandAsync(port, $"bus/remove {bus}", CancellationToken.None); } catch (Exception) { } }
             throw;
         }
     }
 
-    public void Update(XboxReport report)
+    public void Update(XboxReport report, long receivedAt = 0)
     {
         if (failure is not null) throw new IOException("实验性触觉后端已断开，请断开后重试或切回 Xbox 兼容模式", failure);
-        lock (gate) latest = report;
+        lock (gate) { latest = report; latestReceivedAt = receivedAt; latestGeneration++; }
     }
 
     private async Task WriteAsync()
     {
         uint sequence = 0;
+        long forwardedGeneration = -1;
         try {
             using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(8));
             do {
-                XboxReport report; lock (gate) report = latest;
+                XboxReport report; long receivedAt, generation;
+                lock (gate) { report = latest; receivedAt = latestReceivedAt; generation = latestGeneration; }
                 var packet = DualSenseWire.Encode(1, sequence++, DualSenseWire.Input(report));
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
                 timeout.CancelAfter(TimeSpan.FromSeconds(2));
-                await connection.GetStream().WriteAsync(packet, timeout.Token);
+                await channel.WriteAsync(packet, timeout.Token);
+                if (generation != forwardedGeneration && receivedAt > 0) InputForwarded?.Invoke(receivedAt);
+                forwardedGeneration = generation;
             } while (await timer.WaitForNextTickAsync(cancellation.Token));
         } catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
         catch (Exception error) { Fail(error); }
@@ -92,7 +102,7 @@ public sealed class ViiperGamepad : IGameOutput
         long lastMedia = 0;
         bool hadAudio = false;
         try {
-            var stream = connection.GetStream();
+            var stream = channel;
             while (!cancellation.IsCancellationRequested) {
                 byte[] header = new byte[DualSenseWire.HeaderSize];
                 await stream.ReadExactlyAsync(header, cancellation.Token);
@@ -151,7 +161,7 @@ public sealed class ViiperGamepad : IGameOutput
         using var client = new TcpClient { NoDelay = true };
         try {
             await client.ConnectAsync(IPAddress.Loopback, port, timeout.Token).ConfigureAwait(false);
-            using var stream = client.GetStream();
+            using var stream = await BackendAccess.OpenAsync(client, port, timeout.Token).ConfigureAwait(false);
             await stream.WriteAsync(Encoding.UTF8.GetBytes(command + "\0"), timeout.Token).ConfigureAwait(false);
             using var body = new MemoryStream();
             byte[] buffer = new byte[2048];
@@ -175,6 +185,7 @@ public sealed class ViiperGamepad : IGameOutput
         if (Interlocked.Exchange(ref disposed, 1) != 0) return;
         cancellation.Cancel(); connection.Dispose();
         try { Task.WhenAll(reader, writer).Wait(TimeSpan.FromSeconds(2)); } catch (Exception) { }
+        channel.Dispose();
         try { using var removed = CommandAsync(port, $"bus/remove {bus}", CancellationToken.None).GetAwaiter().GetResult(); } catch (Exception) { }
         GC.KeepAlive(this);
     }

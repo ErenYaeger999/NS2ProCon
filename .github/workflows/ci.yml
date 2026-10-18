@@ -1,0 +1,28 @@
+name: Windows checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: 10.0.402
+      - name: Locked restore and protocol / workflow / security tests
+        shell: pwsh
+        run: |
+          dotnet restore NS2Pro.sln -r win-x64 --locked-mode
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          dotnet run --project tests/NS2Pro.Core.Tests -c Release -r win-x64 --no-restore
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          dotnet build src/NS2Pro.App -c Release -r win-x64 --no-restore -warnaserror
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Compile real WinUI tests (interactive execution is available through scripts/test-ui.ps1)
+        shell: pwsh
+        run: |
+          dotnet restore tests/NS2Pro.UI.Tests -r win-x64 --locked-mode
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          dotnet build tests/NS2Pro.UI.Tests -c Release -r win-x64 --no-restore -warnaserror
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }

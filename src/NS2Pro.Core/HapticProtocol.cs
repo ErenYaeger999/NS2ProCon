@@ -2,7 +2,7 @@ namespace NS2Pro.Core;
 
 // Frequencies are Nintendo protocol codes, not a promise of measured actuator Hz.
 public readonly record struct HapticMotor(double LowAmplitude, double HighAmplitude,
-    ushort LowFrequency = 225, ushort HighFrequency = 320)
+    ushort LowFrequency = HapticProtocol.LowCarrierCode, ushort HighFrequency = HapticProtocol.HighCarrierCode)
 {
     public bool IsSilent => !(double.IsFinite(LowAmplitude) && LowAmplitude > 0) && !(double.IsFinite(HighAmplitude) && HighAmplitude > 0);
 }
@@ -20,6 +20,8 @@ public static class HapticProtocol
 {
     // A conservative software ceiling, not a manufacturer-certified continuous-output limit.
     public const int AmplitudeCeiling = 500;
+    // SDL's corroborated compatibility controls. These are wire codes, not Hertz.
+    public const ushort LowCarrierCode = 0x112, HighCarrierCode = 0x187;
     public const int PacketSize = 33;
     public static readonly Guid BluetoothUuid = new("cc483f51-9258-427d-a939-630c31f72b05");
 

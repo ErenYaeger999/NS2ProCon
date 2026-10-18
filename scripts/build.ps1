@@ -18,7 +18,7 @@ try {
     }
     if ($LASTEXITCODE -ne 0) { throw 'Native app build failed' }
     if ($Publish) {
-        foreach ($ns2Required in @('NS2Pro.exe', 'NS2Pro.dll', 'NS2Pro.pri', 'LICENSE.txt', 'ViGEmClient.dll', 'Assets\App.ico', 'Assets\App.png', 'Assets\App.svg', 'Licenses\ViGEmClient.txt', 'Licenses\vgamepad.txt')) {
+        foreach ($ns2Required in @('NS2Pro.exe', 'NS2Pro.dll', 'NS2Pro.pri', 'LICENSE.txt', 'ViGEmClient.dll', 'NaCl.Core.dll', 'Assets\App.ico', 'Assets\App.png', 'Assets\App.svg', 'Licenses\ViGEmClient.txt', 'Licenses\vgamepad.txt', 'Licenses\NaCl.Core.txt')) {
             $ns2RequiredPath = Join-Path $OutputDirectory $ns2Required
             if (-not (Test-Path -LiteralPath $ns2RequiredPath)) { throw "Published file missing: $ns2Required" }
         }

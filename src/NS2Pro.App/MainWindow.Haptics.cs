@@ -167,7 +167,7 @@ public sealed partial class MainWindow
 
     private async Task SelectGameModeAsync(bool enhanced)
     {
-        if (exiting || startingConnection || controller.Info.IsActive || enhancement.Status.Busy || preparingEnhancement || changingBackendSettings) {
+        if (exiting || controller.Info.IsActive || enhancement.Status.Busy || preparingEnhancement || changingBackendSettings) {
             if (gameMode is not null) gameMode.SelectedIndex = wantsEnhanced ? 1 : 0;
             return;
         }
@@ -186,7 +186,7 @@ public sealed partial class MainWindow
 
     private async Task RunEnhancementActionAsync()
     {
-        if (exiting || startingConnection || controller.Info.IsActive || enhancement.Status.Busy || preparingEnhancement || changingBackendSettings) return;
+        if (exiting || controller.Info.IsActive || enhancement.Status.Busy || preparingEnhancement || changingBackendSettings) return;
         switch (enhancement.Status.NextAction(settings.ManageHapticBackend)) {
             case EnhancementAction.UseManaged:
                 await ChangeBackendSettingsAsync(true, settings.ViiperPort, checkAfterChange: true);
@@ -215,7 +215,7 @@ public sealed partial class MainWindow
 
     private async Task ChangeBackendSettingsAsync(bool managed, int port, bool checkAfterChange)
     {
-        if (exiting || startingConnection || controller.Info.IsActive || enhancement.Status.Busy || preparingEnhancement || changingBackendSettings) { SyncBackendOptions(); return; }
+        if (exiting || controller.Info.IsActive || enhancement.Status.Busy || preparingEnhancement || changingBackendSettings) { SyncBackendOptions(); return; }
         if (settings.ManageHapticBackend == managed && settings.ViiperPort == port) return;
         changingBackendSettings = true;
         settings.ManageHapticBackend = managed; settings.ViiperPort = port;
@@ -229,15 +229,15 @@ public sealed partial class MainWindow
 
     private async Task<bool> PrepareEnhancementAsync(bool install = false, bool recheck = false)
     {
-        if (exiting || startingConnection || controller.Info.IsActive || enhancement.Status.Busy || preparingEnhancement || changingBackendSettings) return false;
+        if (exiting || controller.Info.IsActive || enhancement.Status.Busy || preparingEnhancement || changingBackendSettings) return false;
         preparingEnhancement = true;
         lastEnhancementStatus = null; UpdateEnhancementUi();
         try {
             bool ready = await enhancement.PrepareAsync(settings, install, verifyAgain: recheck);
-            if (ready && wantsEnhanced && !exiting && !startingConnection && !controller.Info.IsActive) {
+            if (ready && wantsEnhanced && !exiting && !controller.Info.IsActive) {
                 settings.OutputMode = GameOutputMode.DualSenseExperimental; enhancementFallback = null; SaveSettings();
             }
-            else if (!ready && !startingConnection && !controller.Info.IsActive && settings.OutputMode != GameOutputMode.Xbox) {
+            else if (!ready && !controller.Info.IsActive && settings.OutputMode != GameOutputMode.Xbox) {
                 settings.OutputMode = GameOutputMode.Xbox; SaveSettings();
             }
             return ready && !exiting;
@@ -255,10 +255,10 @@ public sealed partial class MainWindow
     private void UpdateOverviewModeHint()
     {
         if (!cachedPages.TryGetValue("overview", out var overview)) return;
-        bool enhanced = settings.OutputMode == GameOutputMode.DualSenseExperimental;
+        bool enhanced = CurrentOutputMode == GameOutputMode.DualSenseExperimental;
         overview.Live.gameModeTitle.Text = enhanced ? "原生触觉增强模式" : "通用兼容模式";
         overview.Live.gameModeHelp.Text = enhanced ? "通过 DualSense 适配触觉，是否改善震感需实际体验。" :
-            enhancementFallback ?? "已包含普通游戏震动。支持原生触觉的游戏，可到设置中试用增强模式。";
+            controller.EnhancementFallback ?? enhancementFallback ?? "已包含普通游戏震动。支持原生触觉的游戏，可到设置中试用增强模式。";
         if (overview.Live.enhancedUsageNotice is { } notice) notice.Visibility = enhanced ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -266,7 +266,7 @@ public sealed partial class MainWindow
     {
         if (gameMode is null || enhancementPanel is null) return;
         var state = enhancement.Status;
-        bool active = controller.Info.IsActive || startingConnection, native = controller.ReceivingNativeHaptics;
+        bool active = controller.Info.IsActive, native = controller.ReceivingNativeHaptics;
         if (ReferenceEquals(lastEnhancementStatus, state) && lastEnhancementActive == active && lastNativeFeedback == native) return;
         lastEnhancementStatus = state; lastEnhancementActive = active; lastNativeFeedback = native;
         bool busy = state.Busy || preparingEnhancement || changingBackendSettings;
@@ -274,7 +274,7 @@ public sealed partial class MainWindow
         modeHint!.Text = active ? "请先断开 PC 连接，再切换游戏模式。" : "在启动游戏前选择。通用兼容适合大多数游戏，增强模式需要游戏支持。";
         enhancementPanel.Visibility = wantsEnhanced ? Visibility.Visible : Visibility.Collapsed;
         backendManagementHint!.Text = settings.ManageHapticBackend ? "自动管理已开启：本应用检测并启动后端，缺少组件时再提示安装。" : "自动管理已关闭：需要先在其他软件中启动后端，再由本应用连接。";
-        enhancementMessage!.Text = changingBackendSettings ? "正在切换后端设置…" : active && state.Ready && settings.OutputMode == GameOutputMode.DualSenseExperimental ?
+        enhancementMessage!.Text = changingBackendSettings ? "正在切换后端设置…" : active && state.Ready && CurrentOutputMode == GameOutputMode.DualSenseExperimental ?
             native ? "正在接收游戏原生触觉" : "增强模式已连接，等待游戏反馈" : state.Message;
         enhancementProgress!.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
         enhancementProgress.IsIndeterminate = state.Phase != EnhancementPhase.Downloading;
@@ -316,7 +316,7 @@ public sealed partial class MainWindow
         if (rumbleStatus is not null) rumbleStatus.Text = status.Faulted ? status.Message :
             !settings.RumbleEnabled || settings.RumbleStrength == 0 ? "震动已关闭，可在设置中开启或调整强度" :
             !status.Ready ? status.Message : status.Testing ? "正在测试 · 自动停止，也可随时点「立即停止」" :
-            settings.OutputMode == GameOutputMode.DualSenseExperimental ? controller.ReceivingNativeHaptics ? "正在接收游戏原生触觉" : "增强模式已连接 · 可测试震动，或启动支持原生触觉的游戏" :
+            CurrentOutputMode == GameOutputMode.DualSenseExperimental ? controller.ReceivingNativeHaptics ? "正在接收游戏原生触觉" : "增强模式已连接 · 可测试震动，或启动支持原生触觉的游戏" :
             "震动已就绪 · 可选择效果，或在游戏中体验";
         if (rumbleTelemetry is not null) {
             rumbleTelemetry.Text = status.Ready ? $"游戏反馈 {status.Feedback:N0} 次 · 低频 {status.Low / 255d:P0} / 高频 {status.High / 255d:P0}" : "";

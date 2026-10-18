@@ -26,6 +26,7 @@ public sealed class AppSettings
     public bool HasCompletedFirstConnection { get; set; }
     public bool HasSeenConnectionGuide { get; set; }
     public int ConnectionNoticeDismissCount { get; set; }
+    internal GameOutputMode RequestedOutput => PreferNativeHaptics || OutputMode == GameOutputMode.DualSenseExperimental ? GameOutputMode.DualSenseExperimental : GameOutputMode.Xbox;
     internal bool ShouldShowConnectionGuide => !HasSeenConnectionGuide && !HasCompletedFirstConnection;
     internal bool ShouldShowConnectionNotice => ConnectionNoticeDismissCount < 3;
 

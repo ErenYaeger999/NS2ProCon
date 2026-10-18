@@ -57,8 +57,16 @@
           "Microsoft.WindowsAppSDK.InteractiveExperiences": "2.1.8"
         }
       },
+      "NaCl.Core": {
+        "type": "Transitive",
+        "resolved": "2.2.0",
+        "contentHash": "oDMMcIxu2INIz/GsHRmMEsua5DDFLSW2OIel9R/UsJZ2a8tD2TEdbtDsFp+GbD3w/VXQjc/P9Dubtoi0450SZQ=="
+      },
       "ns2pro.core": {
-        "type": "Project"
+        "type": "Project",
+        "dependencies": {
+          "NaCl.Core": "[2.2.0, )"
+        }
       }
     },
     "net10.0-windows10.0.26100/win-x64": {

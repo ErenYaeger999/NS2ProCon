@@ -1,7 +1,14 @@
 {
   "version": 1,
   "dependencies": {
-    "net10.0": {},
+    "net10.0": {
+      "NaCl.Core": {
+        "type": "Direct",
+        "requested": "[2.2.0, )",
+        "resolved": "2.2.0",
+        "contentHash": "oDMMcIxu2INIz/GsHRmMEsua5DDFLSW2OIel9R/UsJZ2a8tD2TEdbtDsFp+GbD3w/VXQjc/P9Dubtoi0450SZQ=="
+      }
+    },
     "net10.0/win-x64": {}
   }
 }

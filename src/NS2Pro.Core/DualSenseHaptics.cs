@@ -97,7 +97,11 @@ public sealed class DualSenseHaptics
         for (int i = 0; i < 64; i++) mean += samples[channel, i] / 64;
         var low = Band(LowFrequencies); var high = Band(HighFrequencies);
         double total = Math.Max(1, low.Amplitude + high.Amplitude);
-        return new(low.Amplitude / total, high.Amplitude / total, (ushort)low.Frequency, (ushort)high.Frequency);
+        // Candidate frequencies are analysis Hz, not Nintendo's oscillator control codes.
+        // Until a hardware-calibrated mapping exists, retain measured band energy on the
+        // established compatibility carriers rather than writing Hz as a raw wire code.
+        return new(low.Amplitude / total, high.Amplitude / total,
+            HapticProtocol.LowCarrierCode, HapticProtocol.HighCarrierCode);
         (int Frequency, double Amplitude) Band(int[] candidates) {
             double best = 0; int frequency = candidates[0];
             foreach (int f in candidates) {

@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Diagnostics;
 using NS2Pro.App.Services;
 using NS2Pro.Core;
 
@@ -38,7 +39,8 @@ internal static class NativeHapticChecks
         }
         processor.Process(tone.AsSpan(0, 64));
         var frame = processor.Process(tone.AsSpan(64, 64));
-        Check(frame.Left.LowFrequency == 160 && frame.Right.HighFrequency == 400, "stereo native samples retain distinct frequency content");
+        Check(frame.Left.LowFrequency == HapticProtocol.LowCarrierCode && frame.Right.HighFrequency == HapticProtocol.HighCarrierCode,
+            "analysis Hertz never masquerades as Nintendo wire controls; validated carriers retain independent band energy");
         Check(frame.Left.LowAmplitude > .3 && frame.Right.HighAmplitude > .3 && frame.Left.HighAmplitude < .1 && frame.Right.LowAmplitude < .1, "bands stay distinct with bounded gain");
         processor.Reset();
         Check(processor.Process(new byte[64]).IsSilent, "new audio epochs contain no stale samples");
@@ -141,10 +143,23 @@ internal static class NativeHapticChecks
             using (var output = await ViiperGamepad.CreateAsync(port, CancellationToken.None)) {
                 int richFrames = 0;
                 var ordinary = new ConcurrentQueue<(byte Low, byte High)>();
+                var forwarded = new ConcurrentQueue<long>();
+                var timing = new InputPerformance();
+                output.InputForwarded += at => { forwarded.Enqueue(at); timing.RecordForward(at); };
                 output.RumbleChanged += (low, high) => ordinary.Enqueue((low, high));
                 output.NativeHaptics += _ => Interlocked.Increment(ref richFrames);
-                output.Update(new() { Buttons = 0x1000, LeftX = 32767 });
+                long receivedAt = Stopwatch.GetTimestamp();
+                output.Update(new() { Buttons = 0x1000, LeftX = 32767 }, receivedAt);
                 await validInput.Task.WaitAsync(TimeSpan.FromSeconds(3));
+                await HapticChecks.Until(() => !forwarded.IsEmpty);
+                await Task.Delay(40);
+                Check(forwarded.ToArray().SequenceEqual(new[] { receivedAt }) && timing.Snapshot.Samples == 1,
+                    "real TCP submissions credit one source report, never the faster repeated virtual refreshes");
+                long nextReceivedAt = Stopwatch.GetTimestamp();
+                output.Update(new() { Buttons = 0x1000, LeftX = 32767 }, nextReceivedAt);
+                await HapticChecks.Until(() => forwarded.Count == 2);
+                Check(forwarded.Last() == nextReceivedAt && timing.Snapshot.ForwardMedianMilliseconds is >= 0,
+                    "unchanged controls in a new physical report still receive completed host-forward timing");
                 allowFeedback.TrySetResult();
                 await HapticChecks.Until(() => richFrames == 2 && !ordinary.IsEmpty);
                 Check(true, "loopback V5 input, fragmented feedback, ordinary fallback and stereo haptics without duplicated realtime samples");

@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <PlatformTarget>x64</PlatformTarget>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <AssemblyName>NS2Pro</AssemblyName>
+    <RootNamespace>NS2Pro.App</RootNamespace>
+    <Product>$(AppDisplayName)</Product>
+    <ApplicationManifest>../../src/NS2Pro.App/app.manifest</ApplicationManifest>
+    <EnableMsixTooling>false</EnableMsixTooling>
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+    <StartupObject>Program</StartupObject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.3.9" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="2.1.9" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
+    <ProjectReference Include="../../src/NS2Pro.Core/NS2Pro.Core.csproj" />
+    <Compile Include="../../src/NS2Pro.App/**/*.cs" Exclude="../../src/NS2Pro.App/bin/**/*.cs;../../src/NS2Pro.App/obj/**/*.cs;../../src/NS2Pro.App/Program.cs" />
+    <ApplicationDefinition Include="../../src/NS2Pro.App/App.xaml" Link="App.xaml" />
+    <EmbeddedResource Include="../../installer/prerequisites.json" LogicalName="NS2Pro.App.Prerequisites.json" />
+    <Content Include="../../third_party/vigem/ViGEmClient.dll" Link="ViGEmClient.dll" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../src/NS2Pro.App/Assets/*" Link="Assets/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="PublishAppResources" AfterTargets="Publish">
+    <Copy SourceFiles="$(TargetDir)$(AssemblyName).pri" DestinationFolder="$(PublishDir)" />
+  </Target>
+</Project>

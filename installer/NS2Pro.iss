@@ -102,8 +102,26 @@ begin
   Result := not DriverNeedsRestart;
 end;
 
-function InitializeSetup: Boolean;
+function HasNewerVersion(RootKey: Integer; var PreviousVersion: String): Boolean;
+var
+  VersionKey: String;
+  InstalledCode, IncomingCode: Int64;
 begin
+  VersionKey := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{{#AppGuid}}_is1';
+  Result := RegQueryStringValue(RootKey, VersionKey, 'DisplayVersion', PreviousVersion) and
+    StrToVersion(PreviousVersion, InstalledCode) and StrToVersion('{#AppVersion}', IncomingCode) and
+    (InstalledCode > IncomingCode);
+end;
+
+function InitializeSetup: Boolean;
+var
+  PreviousVersion: String;
+begin
+  if HasNewerVersion(HKLM64, PreviousVersion) or HasNewerVersion(HKCU64, PreviousVersion) then begin
+    Result := False;
+    SuppressibleMsgBox('已安装更高版本 v' + PreviousVersion + '，本安装包不会降级覆盖。若确需回退，请先卸载当前版本；个人设置会保留。', mbInformation, MB_OK, IDOK);
+    exit;
+  end;
   Result := not CheckForMutexes('Local\NS2Pro.NativeApp');
   if not Result then
     SuppressibleMsgBox('请先退出{#AppDisplayName}，再运行安装包。如果关闭窗口后仍在后台运行，请从右下角托盘菜单选择「断开并退出」。', mbInformation, MB_OK, IDOK);

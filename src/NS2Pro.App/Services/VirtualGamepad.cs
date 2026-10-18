@@ -14,6 +14,7 @@ public sealed class VirtualGamepad : IGameOutput
     private int disposeState;
     public bool FeedbackAvailable => registered;
     public event Action<byte, byte>? RumbleChanged;
+    public event Action<long>? InputForwarded;
     public VirtualGamepad()
     {
         notification = OnFeedback;
@@ -36,9 +37,10 @@ public sealed class VirtualGamepad : IGameOutput
         try { RumbleChanged?.Invoke(large, small); }
         catch (Exception) { /* Never unwind managed exceptions through a native driver callback. */ }
     }
-    public void Update(XboxReport report)
+    public void Update(XboxReport report, long receivedAt = 0)
     {
         lock (gate) { if (target != IntPtr.Zero) Check(vigem_target_x360_update(bus, target, report)); }
+        if (receivedAt > 0) InputForwarded?.Invoke(receivedAt);
     }
     public void Dispose()
     {

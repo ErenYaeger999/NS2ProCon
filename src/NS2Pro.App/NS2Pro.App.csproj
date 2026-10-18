@@ -27,6 +27,7 @@
     <Content Include="..\..\third_party\vigem\ViGEmClient.dll" Link="ViGEmClient.dll" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\third_party\vigem\LICENSE.txt" Link="Licenses\vgamepad.txt" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\third_party\vigem\ViGEmClient-LICENSE.txt" Link="Licenses\ViGEmClient.txt" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\third_party\nacl\LICENSE.txt" Link="Licenses\NaCl.Core.txt" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\App.ico" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\App.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\App.svg" CopyToOutputDirectory="PreserveNewest" />

@@ -6,6 +6,9 @@ foreach ($ns2Required in @('NS2Pro.exe','NS2Pro.dll','NS2Pro.Core.dll','NS2Pro.p
     if (-not (Test-Path -LiteralPath (Join-Path $ns2Directory $ns2Required) -PathType Leaf)) { throw "Missing release file: $ns2Required" }
 }
 $ns2Checks.Add('Required app, runtime, resource, driver and license files are present')
+foreach ($ns2CryptoFile in @('NaCl.Core.dll', 'Licenses\NaCl.Core.txt')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $ns2Directory $ns2CryptoFile) -PathType Leaf)) { throw "Missing managed crypto dependency or MIT license: $ns2CryptoFile" }
+}
 if ((Get-FileHash -LiteralPath (Join-Path $ns2Directory 'LICENSE.txt') -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'LICENSE') -Algorithm SHA256).Hash) { throw 'Release project license differs from the repository LICENSE' }
 $ns2Checks.Add('Project MIT license matches the repository LICENSE')
 $ns2Runtime = Get-Content -LiteralPath (Join-Path $ns2Directory 'NS2Pro.runtimeconfig.json') -Raw | ConvertFrom-Json
@@ -37,6 +40,11 @@ $ns2Checks.Add('Bundled vendor installer digest and Authenticode signature valid
 $ns2AssemblyVersion = [Reflection.AssemblyName]::GetAssemblyName((Join-Path $ns2Directory 'NS2Pro.dll')).Version.ToString(3)
 if ($ns2AssemblyVersion -ne $ns2Manifest.Version) { throw 'Release version mismatch' }
 $ns2Checks.Add('App and release inventory versions match')
+$ns2ProductVersion = (Get-Item -LiteralPath (Join-Path $ns2Directory 'NS2Pro.exe')).VersionInfo.ProductVersion
+if (-not $ns2Manifest.SourceCommit -or $ns2ProductVersion -notlike "*$($ns2Manifest.SourceCommit)*") {
+    throw 'Executable build revision does not match release-manifest SourceCommit'
+}
+$ns2Checks.Add('Executable build revision matches the recorded source commit')
 $ns2PayloadSize = [long](Get-ChildItem -LiteralPath $ns2Directory -Recurse -File | Measure-Object Length -Sum).Sum
 $ns2Result = [pscustomobject]@{
     Version = $ns2Manifest.Version
