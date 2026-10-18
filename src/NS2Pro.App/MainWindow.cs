@@ -71,7 +71,7 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         wantsEnhanced = settings.PreferNativeHaptics || settings.OutputMode == GameOutputMode.DualSenseExperimental;
-        controller = new(settings, enhancement);
+        controller = new(settings, enhancement, OpenBluetoothDeviceAsync);
         Title = App.WindowTitle;
         ExtendsContentIntoTitleBar = true;
         if (Microsoft.UI.Composition.SystemBackdrops.MicaController.IsSupported()) SystemBackdrop = new MicaBackdrop();
@@ -470,8 +470,7 @@ public sealed partial class MainWindow : Window
         connectButton.Content = info.ActionText;
         connectButton.IsEnabled = info.CanStart || info.CanStop;
         live.connectionHint.Text = info.Phase switch {
-            ConnectionPhase.Connected => settings.OutputMode == GameOutputMode.DualSenseExperimental ?
-                "连接已建立，请先检查声音与麦克风，再开始游戏。" : "连接已建立，可直接开始游戏。",
+            ConnectionPhase.Connected => "连接已建立，可直接开始游戏。",
             ConnectionPhase.WaitingForInput => "蓝牙已连接，正在等待手柄输入。",
             ConnectionPhase.Searching => "长按顶部 SYNC，直到手柄指示灯循环闪烁。",
             ConnectionPhase.Preparing or ConnectionPhase.Connecting => "正在连接手柄，请稍候。",

@@ -84,18 +84,11 @@ public sealed partial class MainWindow
             Grid.SetColumn(copy, 1); row.Children.Add(copy); content.Children.Add(row);
         }
         if (compact) {
-            content.Children.Add(Text("声音／麦克风可能切换，请先选回原设备并检查音量；自动恢复后续修复。", 12, false, AppPalette.Muted));
             content.Children.Add(Text("PS 图标需在游戏内设置为 Xbox／ABXY（若支持）；本应用暂无法统一修改。", 12, false, AppPalette.Muted));
         } else {
-            content.Children.Add(Text("开始游戏前", 13, true));
-            AddTip("\uE767", "声音与麦克风 · 后续修复",
-                "连接后，Windows 可能把输入／输出切到 DualSense，导致无声或麦克风不可用。请在系统声音设置中选回扬声器／耳机和麦克风，确认音量正常后再进游戏；已在游戏中可退出重进。自动恢复将在后续版本修复。");
             AddTip("\uE7FC", "游戏内按键图标",
                 "增强模式通过虚拟 DualSense 工作，游戏可能显示 PS 图标。若游戏提供「按键图标／提示样式」，可尝试选择 Xbox／ABXY；没有该选项时，本应用暂无法统一替换，兼容方案仍待研究。布局预设只调整按键对应关系。");
         }
-        var soundSettings = new HyperlinkButton { Content = "打开声音设置", NavigateUri = new("ms-settings:sound"),
-            Padding = new(0), HorizontalAlignment = HorizontalAlignment.Left };
-        content.Children.Add(soundSettings);
         return new Border { Background = Brush(AppPalette.Page), BorderBrush = Brush(AppPalette.Border),
             BorderThickness = new(1), CornerRadius = new(10), Padding = new(compact ? 10 : 16), Child = content };
     }
@@ -301,7 +294,7 @@ public sealed partial class MainWindow
             state.Phase == EnhancementPhase.Downloading ? "正在下载并校验缺少的组件，已安装的组件会保留。" :
             state.Phase == EnhancementPhase.InstallingDriver ? "请按 Windows 提示完成驱动安装；应用不会自动重启电脑。" :
             state.Busy ? "正在检测并验证虚拟手柄与触觉音频通道，请稍候。" :
-            state.Ready ? "连接后先按上方提示检查声音与麦克风，再启动游戏；部分游戏需关闭该游戏的 Steam Input。" :
+            state.Ready ? "连接后再启动游戏；部分游戏需关闭该游戏的 Steam Input。" :
             !settings.ManageHapticBackend ? "可由原软件启动后点「重新检测」，或改用本应用自动管理并检测。切换管理方式不会安装组件。" :
             state.Phase == EnhancementPhase.RestartRequired ? "安装已完成，无需重复安装。保存工作并重启电脑，然后点「重新检测」。" :
             state.Phase is EnhancementPhase.Error or EnhancementPhase.Conflict ? "展开「查看问题详情」，处理后重新检测；也可使用通用模式继续游戏。" :

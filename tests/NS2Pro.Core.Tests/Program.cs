@@ -2,6 +2,11 @@ using NS2Pro.Core;
 using System.Runtime.InteropServices;
 
 if (args.Contains("--probe-feedback")) { await FeedbackProbe.RunAsync(); return; }
+if (OperatingSystem.IsWindows() && args.Contains("--probe-audio")) {
+    using var audio = new NS2Pro.App.Services.WindowsAudioDefaults();
+    Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { Defaults = audio.ReadDefaults().Select(p => new { p.Key.Flow, p.Key.Role, Id = p.Value }), Endpoints = audio.Endpoints() }));
+    return;
+}
 if (args.Contains("--probe-updates")) {
     Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(await new NS2Pro.App.Services.UpdateService().CheckAsync(typeof(NS2Pro.App.Services.UpdateService).Assembly.GetName().Version!)));
     return;
@@ -139,4 +144,5 @@ passed += await HapticChecks.RunAsync();
 passed += await NativeHapticChecks.RunAsync();
 passed += await UpdateChecks.RunAsync();
 passed += await EnhancementChecks.RunAsync();
+passed += AudioDefaultChecks.Run();
 Console.WriteLine($"PASS: {passed} protocol, settings, haptics, updates and single-instance checks.");

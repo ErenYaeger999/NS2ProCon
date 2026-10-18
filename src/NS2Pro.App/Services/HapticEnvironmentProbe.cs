@@ -5,7 +5,7 @@ using Windows.Media.Devices;
 
 namespace NS2Pro.App.Services;
 
-/// <summary>Verify the newly created controller's own audio container, without changing default audio.</summary>
+/// <summary>Verify the new controller's audio container while preserving the user's defaults.</summary>
 public static class HapticEnvironmentProbe
 {
     private const string Container = "System.Devices.ContainerId";
@@ -16,6 +16,7 @@ public static class HapticEnvironmentProbe
         string hidSelector = HidDevice.GetDeviceSelector(1, 5, 0x054c, 0x0ce6);
         var before = await DeviceInformation.FindAllAsync(hidSelector, new[] { Container }).AsTask(token);
         var existing = before.Select(d => d.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        await using var audio = await EnhancedAudioGuard.StartAsync(token);
         using var device = await ViiperGamepad.CreateAsync(port, token);
         device.Update(default);
         var clock = Stopwatch.StartNew();
@@ -27,7 +28,10 @@ public static class HapticEnvironmentProbe
                 .Select(d => d.Properties[Container]?.ToString()).Where(s => !string.IsNullOrEmpty(s)).ToHashSet(StringComparer.OrdinalIgnoreCase);
             if (containers.Count > 0) {
                 var renderers = await DeviceInformation.FindAllAsync(MediaDevice.GetAudioRenderSelector(), new[] { Container }).AsTask(token);
-                if (renderers.Any(d => d.Properties.TryGetValue(Container, out var id) && containers.Contains(id?.ToString()))) return;
+                if (renderers.Any(d => d.Properties.TryGetValue(Container, out var id) && containers.Contains(id?.ToString()))) {
+                    if (audio is not null) await audio.WaitForProtectionAsync(token);
+                    return;
+                }
             }
             await Task.Delay(250, token);
         }
