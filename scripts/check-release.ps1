@@ -1,6 +1,6 @@
 param([Parameter(Mandatory = $true)][string]$PublishDirectory, [string]$ReportDirectory = '')
 $ErrorActionPreference = 'Stop'
-$ns2Directory = (Resolve-Path -LiteralPath $PublishDirectory).Path
+$ns2Directory = (Resolve-Path -LiteralPath $PublishDirectory).Path.TrimEnd('\', '/')
 $ns2Checks = [Collections.Generic.List[string]]::new()
 foreach ($ns2Required in @('NS2Pro.exe','NS2Pro.dll','NS2Pro.Core.dll','NS2Pro.pri','NS2Pro.runtimeconfig.json','hostfxr.dll','coreclr.dll','Microsoft.UI.Xaml.dll','Microsoft.WindowsAppRuntime.dll','LICENSE.txt','ViGEmClient.dll','Assets\App.ico','Assets\App.png','Assets\App.svg','Licenses\ViGEmClient.txt','Licenses\vgamepad.txt','Licenses\ViGEmBus.txt','Licenses\WindowsSDK.rtf','Licenses\Packages\microsoft.netcore.app.runtime.win-x64\LICENSE.TXT','Prerequisites\manifest.json','使用说明.txt')) {
     if (-not (Test-Path -LiteralPath (Join-Path $ns2Directory $ns2Required) -PathType Leaf)) { throw "Missing release file: $ns2Required" }
