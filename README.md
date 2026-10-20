@@ -2,6 +2,7 @@
 
 **近期更新**
 
+- **v0.9**：增强模式新增 DualSense 六轴体感、静置校准与实时测试，补齐首次使用引导；优化游戏图标提示与使用体验。
 - **v0.8**：新增可选 DualSense 触觉增强与组件自动管理，自动保持音频设备；完善连接取消、更换手柄、运行状态和诊断，提升使用体验与稳定性。
 - **v0.7**：新增通用游戏震动、震动测试与强度调节，支持更新提醒和原位升级。
 - **v0.6**：首次公开发布，支持无线连接、实时手柄测试与布局切换，并采用 MIT 开源协议。
@@ -10,12 +11,12 @@
 
 通过蓝牙把 Nintendo Switch 2 Pro Controller 无线连接到 Windows，默认输出为 Xbox 360 / XInput 手柄，保留原有 NS2 配对。
 
-[下载 v0.8.6 安装版（Windows x64）](https://github.com/ErenYaeger999/NS2ProCon/releases/download/v0.8.6/NS2Pro-0.8.6-win-x64-setup.exe) · [全部版本与附件](https://github.com/ErenYaeger999/NS2ProCon/releases)
+[下载 v0.9.0 安装版（Windows x64）](https://github.com/ErenYaeger999/NS2ProCon/releases/download/v0.9.0/NS2Pro-0.9.0-win-x64-setup.exe) · [全部版本与附件](https://github.com/ErenYaeger999/NS2ProCon/releases)
 
 <p align="center">
-  <img src="docs/images/overview.png" width="1000" alt="NS2Pro手柄PC连接器实际运行界面：手柄已连接，A 键实时高亮，输入频率 66 Hz，电量 50%">
+  <img src="docs/images/overview.png" width="1000" alt="NS2Pro手柄PC连接器实际运行界面：增强模式已连接，按键实时高亮，回报率、本机转发耗时和电量">
 </p>
-<p align="center"><sub>连接总览示意（截图为 v0.6.0，布局以当前版本为准）。</sub></p>
+<p align="center"><sub>连接总览示意（截图为 v0.9.0，来自实际连接）。</sub></p>
 
 ## 功能
 
@@ -25,10 +26,11 @@
 - **电量与充电**：电池图标随电量变色，充电时显示闪电。
 - **连接状态**：显示实际蓝牙回报率与本机转发耗时；转发耗时仅包含应用内处理和提交，不代表手柄到屏幕的总延迟。
 - **游戏震动**：接收 Xbox 游戏的低／高频反馈，支持开关与强度调节；可测试低频、高频、左右侧、轻点和短脉冲，并立即停止。
+- **六轴体感**：增强模式向游戏／Steam 提供陀螺仪与加速度，支持三轴检测和静置校准；在游戏／Steam 中设置体感瞄准。
 - **托盘操作**：右键连接、取消等待、断开或退出；单实例运行，重复打开会恢复现有窗口。
 - **更新提醒**：启动后检查最新正式版，有新版时提供 Release 下载入口，设置中也可手动检查。
 
-当前支持按键、摇杆、电量、充电状态和通用游戏震动。HOME、截图、C、GL / GR 可检测，暂未映射到 Xbox；陀螺仪和耳机音频暂未支持。
+当前正式版支持按键、摇杆、电量、充电状态和通用游戏震动。HOME、截图、C、GL / GR 可检测，暂未映射到 Xbox；耳机音频暂未支持。增强模式另提供 [DualSense 六轴体感](docs/motion.md)，已通过本机手柄读取、校准与虚拟输出验证；具体游戏体感支持需分别确认。
 
 ## 系统要求与安装
 
@@ -84,9 +86,17 @@
 
 本机已通过后端启动、真实虚拟 DualSense 与触觉音频端点自检；用户已在《空之轨迹2》中确认增强模式震动正常停止，并在 v0.8.4 确认连接后系统音频输入／输出、游戏声音和震动正常。不同游戏的触觉提升与更多设备的兼容性仍需分别验证。安装细节见[增强组件说明](docs/enhancement-setup.md)，实现范围和测试记录见[震动说明](docs/haptics.md)。
 
+## 体感瞄准
+
+1. 选择「原生触觉增强（实验）」后连接，保持设置中的六轴体感开启。已有增强环境无需重装。
+2. 从首页进入「体感测试与校准」，确认三轴有响应，再放稳桌面校准约 2 秒。结果保存在本机，同一只手柄重连可复用。
+3. 在支持的游戏或 Steam 控制器布局中开启体感瞄准，调整灵敏度和启用键。连接器本身不自动开启游戏瞄准。
+
+仅透传真实六轴，不输出鼠标或摇杆瞄准；普通 Xbox 模式没有体感。Steam Input 可能影响游戏原生触觉，需按游戏选择。三轴与校准已通过实物验证，具体游戏兼容性仍需分别确认，详见[体感说明](docs/motion.md)。
+
 ## 空间占用
 
-v0.8.6 大小（MiB，取整）：
+v0.9.0 大小（MiB，取整）：
 
 | 内容 | 大小 |
 | --- | ---: |
@@ -127,13 +137,14 @@ v0.8.6 大小（MiB，取整）：
 | 作者 / 项目 | 本项目中的用途 |
 | --- | --- |
 | [ndeadly / switch2_controller_research](https://github.com/ndeadly/switch2_controller_research) | 广播、输入报告、校准读取及电源状态的协议资料 |
+| [ZX8592 / Switch2ProWirelessViiper](https://github.com/ZX8592/Switch2ProWirelessViiper) | FD2 六轴通道与报告布局交叉核对 |
 | [TommyWabg / Switch2Connect](https://github.com/TommyWabg/Switch2Connect) | 无线连接与 Xbox 桥接的实现参考 |
 | [CareyScott / switch2controllerpc](https://github.com/CareyScott/switch2controllerpc) | 手柄连接与输入桥接的实现参考 |
 | [Benjamin Höglinger-Stelzer / Nefarius：ViGEmBus](https://github.com/nefarius/ViGEmBus)、[ViGEmClient](https://github.com/nefarius/ViGEmClient) | 虚拟 Xbox 360 手柄驱动与客户端；ViGEmBus 使用官方 1.22.0 签名安装器 |
 | [Yann Bouteiller / vgamepad](https://github.com/yannbouteiller/vgamepad) | 本项目随包的 ViGEmClient DLL 来自 vgamepad 0.1.0 发布文件，保留其许可 |
 | [Microsoft / Windows App SDK](https://github.com/microsoft/WindowsAppSDK)、[.NET](https://github.com/dotnet/runtime) | 原生界面、Windows 接口与运行环境 |
 | [David Desmet / NaCl.Core](https://github.com/daviddesmet/NaCl.Core) | MIT；Windows 10 的认证加密兼容实现，避免新增原生运行库或关闭认证。固定使用 2.2.0 |
-| [SDL](https://github.com/libsdl-org/SDL)、[Jacques Gagnon / BlueRetro](https://github.com/darthcloud/BlueRetro) | 震动协议交叉核对及限幅策略参考；本项目自行实现 BLE 编码与调度 |
+| [SDL](https://github.com/libsdl-org/SDL)、[Jacques Gagnon / BlueRetro](https://github.com/darthcloud/BlueRetro) | 震动协议、限幅策略与六轴坐标交叉核对；本项目自行实现 BLE 编码与调度 |
 | [hbashton / VIIPER](https://github.com/hbashton/VIIPER) | 可选触觉增强后端，按需下载并独立运行，通过本机 VPCM V5 通信；保留包内许可证与来源，不链接其库 |
 | [vadimgrn / usbip-win2](https://github.com/vadimgrn/usbip-win2) | 增强模式使用的官方签名 USBIP 驱动，按后端要求固定版本并按需下载 |
 

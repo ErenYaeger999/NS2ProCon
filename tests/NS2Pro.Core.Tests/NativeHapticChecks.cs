@@ -56,6 +56,7 @@ internal static class NativeHapticChecks
         var checkStops = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var stopsSent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var validInput = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var expiredMotion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
         int port = ((IPEndPoint)listener.LocalEndpoint).Port;
         using var stop = new CancellationTokenSource();
@@ -93,7 +94,19 @@ internal static class NativeHapticChecks
                     var head = new byte[16]; await stream.ReadExactlyAsync(head, stop.Token);
                     var body = new byte[DualSenseWire.PayloadLength(head)]; await stream.ReadExactlyAsync(body, stop.Token);
                     DualSenseWire.Validate(head, body, ref last);
-                    if (body.Length == 33 && body[0] == 127 && BinaryPrimitives.ReadUInt32LittleEndian(body.AsSpan(4)) == 0x20) { validInput.TrySetResult(); break; }
+                    if (body.Length == 33 && body[0] == 127 && BinaryPrimitives.ReadUInt32LittleEndian(body.AsSpan(4)) == 0x20 &&
+                        BinaryPrimitives.ReadInt16LittleEndian(body.AsSpan(21)) == 160 && BinaryPrimitives.ReadInt16LittleEndian(body.AsSpan(29)) == 8192) {
+                        validInput.TrySetResult(); break;
+                    }
+                }
+                while (true) {
+                    var head = new byte[16]; await stream.ReadExactlyAsync(head, stop.Token);
+                    var body = new byte[DualSenseWire.PayloadLength(head)]; await stream.ReadExactlyAsync(body, stop.Token);
+                    DualSenseWire.Validate(head, body, ref last);
+                    if (body.AsSpan(21, 6).ToArray().All(x => x == 0) && BinaryPrimitives.ReadInt16LittleEndian(body.AsSpan(29)) == 8192 &&
+                        BinaryPrimitives.ReadUInt32LittleEndian(body.AsSpan(4)) == 0x20) {
+                        expiredMotion.TrySetResult(); break;
+                    }
                 }
                 await allowFeedback.Task.WaitAsync(stop.Token);
                 byte[] feedback = new byte[474]; feedback[0] = 57; feedback[1] = 23;
@@ -150,7 +163,11 @@ internal static class NativeHapticChecks
                 output.NativeHaptics += _ => Interlocked.Increment(ref richFrames);
                 long receivedAt = Stopwatch.GetTimestamp();
                 output.Update(new() { Buttons = 0x1000, LeftX = 32767 }, receivedAt);
+                output.UpdateMotion(new(new(10, 0, 0), new(0, 1, 0), receivedAt));
                 await validInput.Task.WaitAsync(TimeSpan.FromSeconds(3));
+                Check(true, "real V5 writer forwards sensor state with the same gamepad and valid frame sequencing");
+                await expiredMotion.Task.WaitAsync(TimeSpan.FromSeconds(3));
+                Check(true, "writer expires angular velocity independently of further notifications, retaining gravity and buttons");
                 await HapticChecks.Until(() => !forwarded.IsEmpty);
                 await Task.Delay(40);
                 Check(forwarded.ToArray().SequenceEqual(new[] { receivedAt }) && timing.Snapshot.Samples == 1,

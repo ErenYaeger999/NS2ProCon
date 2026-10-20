@@ -22,6 +22,8 @@ public sealed class AppSettings
     public int ViiperPort { get; set; } = 3242;
     public bool ManageHapticBackend { get; set; } = true;
     public bool PreferNativeHaptics { get; set; }
+    public bool DualSenseMotionEnabled { get; set; } = true;
+    public MotionCalibrationProfile? MotionCalibration { get; set; }
     public string LastControllerAddress { get; set; } = "";
     public bool HasCompletedFirstConnection { get; set; }
     public bool HasSeenConnectionGuide { get; set; }
@@ -44,6 +46,11 @@ public sealed class AppSettings
         LastControllerAddress = (LastControllerAddress ?? "").Trim().ToUpperInvariant();
         if (LastControllerAddress.Length > 0 && !System.Text.RegularExpressions.Regex.IsMatch(LastControllerAddress, "^([0-9A-F]{2}:){5}[0-9A-F]{2}$"))
             LastControllerAddress = "";
+        if (MotionCalibration is { } calibration) {
+            var address = (calibration.Address ?? "").Trim().ToUpperInvariant();
+            MotionCalibration = System.Text.RegularExpressions.Regex.IsMatch(address, "^([0-9A-F]{2}:){5}[0-9A-F]{2}$") && MotionProtocol.ValidCalibration(calibration.Bias)
+                ? calibration with { Address = address } : null;
+        }
     }
 
     public static AppSettings Load()

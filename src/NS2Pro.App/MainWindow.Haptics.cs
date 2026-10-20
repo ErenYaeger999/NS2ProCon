@@ -84,7 +84,7 @@ public sealed partial class MainWindow
             Grid.SetColumn(copy, 1); row.Children.Add(copy); content.Children.Add(row);
         }
         if (compact) {
-            content.Children.Add(Text("PS 图标需在游戏内设置为 Xbox／ABXY（若支持）；本应用暂无法统一修改。", 12, false, AppPalette.Muted));
+            content.Children.Add(Text("启用实验增强后，游戏可能显示 PS 图标。可在游戏内切换为 Xbox／ABXY（若支持）；布局预设不改变游戏图标。", 12, false, AppPalette.Muted));
         } else {
             AddTip("\uE7FC", "游戏内按键图标",
                 "增强模式通过虚拟 DualSense 工作，游戏可能显示 PS 图标。若游戏提供「按键图标／提示样式」，可尝试选择 Xbox／ABXY；没有该选项时，本应用暂无法统一替换，兼容方案仍待研究。布局预设只调整按键对应关系。");
@@ -256,10 +256,11 @@ public sealed partial class MainWindow
     {
         if (!cachedPages.TryGetValue("overview", out var overview)) return;
         bool enhanced = CurrentOutputMode == GameOutputMode.DualSenseExperimental;
-        overview.Live.gameModeTitle.Text = enhanced ? "原生触觉增强模式" : "通用兼容模式";
-        overview.Live.gameModeHelp.Text = enhanced ? "通过 DualSense 适配触觉，是否改善震感需实际体验。" :
+        overview.Live.gameModeTitle.Text = enhanced ? "原生触觉增强（实验）" : "通用兼容模式";
+        overview.Live.gameModeHelp.Text = enhanced ? "通过 DualSense 提供触觉和可选体感，震感提升取决于游戏。" :
             controller.EnhancementFallback ?? enhancementFallback ?? "已包含普通游戏震动。支持原生触觉的游戏，可到设置中试用增强模式。";
         if (overview.Live.enhancedUsageNotice is { } notice) notice.Visibility = enhanced ? Visibility.Visible : Visibility.Collapsed;
+        if (overview.Live.motionEntry is { } entry) entry.Visibility = enhanced && settings.DualSenseMotionEnabled ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void UpdateEnhancementUi()

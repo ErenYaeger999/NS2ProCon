@@ -208,6 +208,7 @@ public sealed partial class MainWindow : Window
         public readonly TextBlock gameModeTitle = Text("通用兼容模式", 13, true);
         public readonly TextBlock gameModeHelp = Text("支持原生触觉的游戏，可到设置中试用增强模式。", 12, false, AppPalette.Muted);
         public Border? enhancedUsageNotice;
+        public HyperlinkButton? motionEntry;
     }
     private sealed record CachedPage(StackPanel Content, LiveControls Live, string Title, string Subtitle);
     private void WireLiveControls()
@@ -281,6 +282,8 @@ public sealed partial class MainWindow : Window
         actions.Children.Add(live.gameModeTitle); actions.Children.Add(live.gameModeHelp);
         var modeSettings = new HyperlinkButton { Content = "设置游戏模式", Padding = new(0), HorizontalAlignment = HorizontalAlignment.Left };
         modeSettings.Click += (_, _) => OpenEnhancementSettings(); actions.Children.Add(modeSettings);
+        live.motionEntry = new HyperlinkButton { Content = "体感测试与校准", Padding = new(0), HorizontalAlignment = HorizontalAlignment.Left };
+        live.motionEntry.Click += (_, _) => OpenMotionTest(); actions.Children.Add(live.motionEntry);
         live.enhancedUsageNotice = EnhancedUsageNotice(compact: true);
         actions.Children.Add(live.enhancedUsageNotice);
         page.Children.Add(Columns(Card(hero, 24), Card(actions, 23), 1.8, 1));
@@ -315,6 +318,7 @@ public sealed partial class MainWindow : Window
         page.Children.Add(Columns(TriggerCard("ZL · 左扳机", leftTrigger, live.leftTriggerState), TriggerCard("ZR · 右扳机", rightTrigger, live.rightTriggerState), 1, 1));
         page.Children.Add(Text("中心偏移请在松开摇杆后观察；数字扳机只有按下和松开两种状态。", 12, false, AppPalette.Muted));
         page.Children.Add(RumbleTestCard());
+        page.Children.Add(MotionTestCard());
     }
 
     private void BuildMappingPage()
@@ -341,6 +345,7 @@ public sealed partial class MainWindow : Window
     {
         title.Text = "设置与诊断"; subtitle.Text = "保持简单，也保留需要时的排查工具。";
         page.Children.Add(HapticBackendOptions());
+        page.Children.Add(MotionSettingsCard());
         page.Children.Add(RumbleSettingsCard());
         var behavior = new StackPanel { Spacing = 18, Children = { Text("运行方式", 17, true) } };
         var trayToggle = new ToggleSwitch { Header = "关闭窗口后继续在后台运行", OnContent = "缩至托盘，保持连接", OffContent = "关闭窗口即断开并退出", IsOn = settings.CloseToTray };
@@ -420,7 +425,7 @@ public sealed partial class MainWindow : Window
         diagnostics.Children.Add(tools);
         diagnostics.Children.Add(result); logBox.Text = string.Join(Environment.NewLine, logLines); diagnostics.Children.Add(logBox);
         page.Children.Add(Card(diagnostics, 24));
-        page.Children.Add(Text("支持按键、摇杆、电量、充电状态及通用游戏震动。原生触觉增强仍在验证；体感和耳机音频暂未支持。", 12, false, AppPalette.Muted));
+        page.Children.Add(Text("支持按键、摇杆、电量、充电状态及通用游戏震动。增强模式可输出六轴体感，需游戏或 Steam 支持；耳机音频暂未支持。", 12, false, AppPalette.Muted));
     }
 
     private void RefreshAddressEditor()
@@ -506,6 +511,7 @@ public sealed partial class MainWindow : Window
     {
         UpdateRumbleStatus();
         UpdateEnhancementUi();
+        UpdateMotionUi();
         bool hasInput = controller.Input is not null;
         if (!hasInput && hadLiveInput) {
             foreach (var cached in cachedPages.Values) { cached.Live.leftPlot.Clear(); cached.Live.rightPlot.Clear(); }

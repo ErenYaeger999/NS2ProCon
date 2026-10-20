@@ -39,7 +39,7 @@ public static class DualSenseWire
         return header[5];
     }
 
-    public static byte[] Input(XboxReport report)
+    public static byte[] Input(XboxReport report, MotionState? motion = null)
     {
         var result = new byte[33];
         result[0] = Axis(report.LeftX); result[1] = Axis(-report.LeftY);
@@ -54,7 +54,16 @@ public static class DualSenseWire
         BinaryPrimitives.WriteUInt32LittleEndian(result.AsSpan(4), buttons);
         result[8] = (byte)(report.Buttons & 15);
         result[9] = report.LeftTrigger; result[10] = report.RightTrigger;
-        // No fabricated motion samples, touches, microphone or speaker output.
+        // Calibrated canonical VIIPER units; feature 0x05 already describes this scale.
+        // A missing/expired IMU must not replay angular velocity. Retain the last gravity
+        // vector when available; a newly created flat/resting device has +Y proper acceleration.
+        var gyro = motion?.Gyroscope ?? default;
+        var accel = motion?.Acceleration ?? new MotionVector(0, 1, 0);
+        foreach (var (offset, value) in new[] { (21, gyro.X), (23, gyro.Y), (25, gyro.Z),
+            (27, accel.X), (29, accel.Y), (31, accel.Z) })
+            BinaryPrimitives.WriteInt16LittleEndian(result.AsSpan(offset), double.IsFinite(value) ?
+                (short)Math.Clamp(Math.Round(value * (offset < 27 ? 16 : 8192)), short.MinValue, short.MaxValue) : (short)0);
+        // Touch, microphone and speaker input remain absent.
         return result;
     }
     private static byte Axis(int value) => unchecked((byte)(sbyte)Math.Clamp((int)Math.Round(value / 32767d * 127), -127, 127));

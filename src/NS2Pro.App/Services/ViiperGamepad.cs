@@ -19,6 +19,7 @@ public sealed class ViiperGamepad : IGameOutput
     private readonly CancellationTokenSource cancellation = new();
     private readonly Task reader, writer;
     private XboxReport latest;
+    private MotionState? latestMotion;
     private long latestReceivedAt, latestGeneration;
     private long rumbleCommands, rumbleStops, nativeBlocks, nativeActiveBlocks;
     private volatile Exception? failure;
@@ -75,6 +76,11 @@ public sealed class ViiperGamepad : IGameOutput
         lock (gate) { latest = report; latestReceivedAt = receivedAt; latestGeneration++; }
     }
 
+    public void UpdateMotion(MotionState? state)
+    {
+        lock (gate) latestMotion = state;
+    }
+
     private async Task WriteAsync()
     {
         uint sequence = 0;
@@ -82,9 +88,11 @@ public sealed class ViiperGamepad : IGameOutput
         try {
             using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(8));
             do {
-                XboxReport report; long receivedAt, generation;
-                lock (gate) { report = latest; receivedAt = latestReceivedAt; generation = latestGeneration; }
-                var packet = DualSenseWire.Encode(1, sequence++, DualSenseWire.Input(report));
+                XboxReport report; MotionState? motion; long receivedAt, generation;
+                lock (gate) { report = latest; motion = latestMotion; receivedAt = latestReceivedAt; generation = latestGeneration; }
+                if (motion is not null && !MotionProtocol.IsFresh(motion, Stopwatch.GetTimestamp()))
+                    motion = motion with { Gyroscope = default };
+                var packet = DualSenseWire.Encode(1, sequence++, DualSenseWire.Input(report, motion));
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
                 timeout.CancelAfter(TimeSpan.FromSeconds(2));
                 await channel.WriteAsync(packet, timeout.Token);

@@ -101,6 +101,73 @@ internal static class Program
                             !Descendants((DependencyObject)window.Content).OfType<Microsoft.UI.Xaml.Controls.HyperlinkButton>().Any(x => Equals(x.Content, "更换手柄")))
                             throw new Exception("Overview lacks cadence, honest host timing or change-controller action");
                         Passed.Add("Overview offers real report cadence, host-only forwarding time and an explicit change-controller action");
+                        var motionRefresh = window.GetType().GetMethod("UpdateMotionUi", Private)!;
+                        var motionCard = (Microsoft.UI.Xaml.Controls.Border)window.GetType().GetField("motionSettings", Private)!.GetValue(window)!;
+                        var motionButton = (Microsoft.UI.Xaml.Controls.Button)window.GetType().GetField("motionCalibrate", Private)!.GetValue(window)!;
+                        var motionCopy = (Microsoft.UI.Xaml.Controls.TextBlock)window.GetType().GetField("motionMessage", Private)!.GetValue(window)!;
+                        var motionProgress = (Microsoft.UI.Xaml.Controls.ProgressBar)window.GetType().GetField("motionProgress", Private)!.GetValue(window)!;
+                        var motionFirstUse = (Microsoft.UI.Xaml.Controls.Border)window.GetType().GetField("motionFirstUse", Private)!.GetValue(window)!;
+                        var motionNextStep = (Microsoft.UI.Xaml.Controls.TextBlock)window.GetType().GetField("motionNextStep", Private)!.GetValue(window)!;
+                        var savedMode = previewSettings.OutputMode; bool savedPreference = previewSettings.PreferNativeHaptics;
+                        previewSettings.OutputMode = NS2Pro.App.Services.GameOutputMode.Xbox; previewSettings.PreferNativeHaptics = false;
+                        window.GetType().GetField("wantsEnhanced", Private)!.SetValue(window, false);
+                        motionRefresh.Invoke(window, null);
+                        if (motionCard.Visibility != Visibility.Collapsed || motionButton.IsEnabled || !motionCopy.Text.Contains("DualSense"))
+                            throw new Exception("Xbox exposes inactive motion settings or an enabled calibration action");
+                        Passed.Add("Motion settings stay enhanced-only, and Xbox offers an honest DualSense prerequisite");
+                        long motionNow = Stopwatch.GetTimestamp();
+                        var motionSession = new NS2Pro.Core.MotionSession(timestamp: () => motionNow);
+                        var motionPacket = new byte[63];
+                        System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(motionPacket.AsSpan(52), 4096);
+                        System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(motionPacket.AsSpan(54), 100);
+                        motionSession.Submit(motionPacket, motionNow);
+                        previewController.GetType().GetField("motion", Private)!.SetValue(previewController, motionSession);
+                        previewController.GetType().GetField("activeOutputMode", Private)!.SetValue(previewController, NS2Pro.App.Services.GameOutputMode.DualSenseExperimental);
+                        previewController.GetType().GetField("info", Private)!.SetValue(previewController,
+                            new NS2Pro.App.Services.ConnectionInfo(NS2Pro.App.Services.ConnectionPhase.Connected, "体感界面隔离检查"));
+                        window.GetType().GetField("wantsEnhanced", Private)!.SetValue(window, true);
+                        window.GetType().GetMethod("SelectPage", Private)!.Invoke(window, ["test"]);
+                        motionRefresh.Invoke(window, null); window.Content.UpdateLayout();
+                        if (!motionButton.IsEnabled || motionCard.Visibility != Visibility.Visible || !motionCopy.Text.Contains("六轴已就绪"))
+                            throw new Exception("Fresh six-axis input did not enable its real calibration action");
+                        var firstUseCopy = string.Join("\n", Descendants(motionFirstUse).OfType<Microsoft.UI.Xaml.Controls.TextBlock>().Select(x => x.Text));
+                        if (motionFirstUse.Visibility != Visibility.Visible || !firstUseCopy.Contains("静置") || !firstUseCopy.Contains("Steam") || !firstUseCopy.Contains("启用键"))
+                            throw new Exception("First-use guidance omits calibration or the game's own aiming setup");
+                        var motionTestCard = (Microsoft.UI.Xaml.Controls.Border)((Microsoft.UI.Xaml.Controls.StackPanel)((Microsoft.UI.Xaml.Controls.Grid)motionButton.Parent).Parent).Parent;
+                        if (Environment.GetCommandLineArgs().Contains("--capture-motion")) await Capture(motionTestCard, "motion-test-wide.png");
+                        motionTestCard.Width = 340; window.Content.UpdateLayout(); await Task.Delay(100); window.Content.UpdateLayout();
+                        if (Environment.GetCommandLineArgs().Contains("--capture-motion")) await Capture(motionTestCard, "motion-test-narrow.png");
+                        previewController.GetType().GetField("info", Private)!.SetValue(previewController,
+                            new NS2Pro.App.Services.ConnectionInfo(NS2Pro.App.Services.ConnectionPhase.Stopping, "正在断开"));
+                        motionRefresh.Invoke(window, null);
+                        if (motionButton.IsEnabled || previewController.CalibrateMotion()) throw new Exception("A disconnecting session accepts a new calibration");
+                        previewController.GetType().GetField("info", Private)!.SetValue(previewController,
+                            new NS2Pro.App.Services.ConnectionInfo(NS2Pro.App.Services.ConnectionPhase.Connected, "已连接"));
+                        if (!previewController.CalibrateMotion()) throw new Exception("The visible action cannot start static calibration");
+                        motionRefresh.Invoke(window, null);
+                        if (motionButton.IsEnabled || motionProgress.Visibility != Visibility.Visible || !Equals(motionButton.Content, "正在校准…"))
+                            throw new Exception("Calibration progress or repeated-click prevention is missing");
+                        for (uint i = 1; i <= 145; i++) {
+                            motionNow += Stopwatch.Frequency * 15 / 1000;
+                            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(motionPacket, i);
+                            motionSession.Submit(motionPacket, motionNow);
+                        }
+                        motionRefresh.Invoke(window, null);
+                        if (motionFirstUse.Visibility != Visibility.Collapsed || motionProgress.Visibility != Visibility.Collapsed || !motionNextStep.Text.Contains("游戏／Steam"))
+                            throw new Exception("Completed calibration retains onboarding or lacks the next game setup step");
+                        Passed.Add("First-use motion steps disappear after successful calibration, with an explicit game/Steam setup handoff");
+                        motionSession.Clear(); motionRefresh.Invoke(window, null);
+                        if (motionButton.IsEnabled || motionProgress.Visibility != Visibility.Collapsed)
+                            throw new Exception("Lost input leaves a stale calibration state in the UI");
+                        motionTestCard.Width = double.NaN;
+                        Passed.Add("Real six-axis test controls show motion, static calibration progress and immediate disconnect reset at wide/narrow widths");
+                        previewController.GetType().GetField("motion", Private)!.SetValue(previewController, null);
+                        previewController.GetType().GetField("activeOutputMode", Private)!.SetValue(previewController, NS2Pro.App.Services.GameOutputMode.Xbox);
+                        previewController.GetType().GetField("info", Private)!.SetValue(previewController,
+                            new NS2Pro.App.Services.ConnectionInfo(NS2Pro.App.Services.ConnectionPhase.Idle, ""));
+                        previewSettings.OutputMode = savedMode; previewSettings.PreferNativeHaptics = savedPreference;
+                        window.GetType().GetField("wantsEnhanced", Private)!.SetValue(window, true);
+                        window.GetType().GetMethod("SelectPage", Private)!.Invoke(window, ["overview"]);
                         string diagnostics = await NS2Pro.App.Services.DiagnosticService.CollectAsync(previewSettings, previewController,
                             (NS2Pro.App.Services.EnhancementService)manager, ["设备 AA:BB:CC:DD:EE:FF · " + Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)]);
                         if (!diagnostics.Contains("回报率") || !diagnostics.Contains("本机转发") ||
@@ -134,7 +201,7 @@ internal static class Program
                         previewSettings.OutputMode = NS2Pro.App.Services.GameOutputMode.DualSenseExperimental;
                         refreshOverview.Invoke(window, null); window.Content.UpdateLayout(); await Task.Delay(100);
                         var overviewCopy = string.Join("\n", Descendants(overviewNotice).OfType<Microsoft.UI.Xaml.Controls.TextBlock>().Select(x => x.Text));
-                        if (overviewNotice.Visibility != Visibility.Visible || !overviewCopy.Contains("PS 图标") || overviewCopy.Contains("声音") || overviewCopy.Contains("麦克风"))
+                        if (overviewNotice.Visibility != Visibility.Visible || !overviewCopy.Contains("PS 图标") || !overviewCopy.Contains("启用实验增强后") || overviewCopy.Contains("声音") || overviewCopy.Contains("麦克风"))
                             throw new Exception("Active enhanced output lacks its overview reminder");
                         if (Environment.GetCommandLineArgs().Contains("--capture-enhancement")) await Capture((FrameworkElement)window.Content, "enhancement-overview.png");
                         previewSettings.OutputMode = NS2Pro.App.Services.GameOutputMode.Xbox; previewSettings.PreferNativeHaptics = false;

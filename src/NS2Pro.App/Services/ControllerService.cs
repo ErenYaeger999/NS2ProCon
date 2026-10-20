@@ -26,6 +26,17 @@ public sealed class ControllerService(AppSettings settings, EnhancementService e
     private volatile bool systemSuspended;
     private GameOutputMode activeOutputMode;
     private readonly InputPerformance performance = new();
+    private volatile MotionSession? motion;
+    private volatile ViiperGamepad? motionOutput;
+    public MotionStatus? Motion => motion?.Status;
+    public bool CalibrateMotion()
+    {
+        var current = motion;
+        if (systemSuspended || info.Phase != ConnectionPhase.Connected || current?.BeginCalibration() != true) return false;
+        haptics?.SetInputAvailable(false); haptics?.Stop();
+        motionOutput?.UpdateMotion(current.Output);
+        return true;
+    }
     public InputPerformanceSnapshot Performance => performance.Snapshot;
     public GameOutputMode ActiveOutputMode => activeOutputMode;
     public string? EnhancementFallback { get; private set; }
@@ -42,6 +53,7 @@ public sealed class ControllerService(AppSettings settings, EnhancementService e
     public void SetSystemSuspended(bool value)
     {
         systemSuspended = value;
+        motion?.Clear("等待恢复后的新体感数据…"); motionOutput?.UpdateMotion(null);
         haptics?.SetInputAvailable(false);
         AppLog.Write("info", value ? "系统即将休眠，停止震动" : "系统已恢复，清除旧震动，等待新反馈");
     }
@@ -149,7 +161,7 @@ public sealed class ControllerService(AppSettings settings, EnhancementService e
             }
         } catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception error) { AppLog.Write("error", error.ToString()); Publish(ConnectionPhase.Error, error.Message); }
-        finally { input = null; performance.Reset(); }
+        finally { input = null; motion = null; motionOutput = null; performance.Reset(); }
     }
 
     private sealed record DiscoveredController(ulong Address, BluetoothAddressType Type, short Rssi);
@@ -265,20 +277,33 @@ public sealed class ControllerService(AppSettings settings, EnhancementService e
         int seenRight=0, seenLeft=0, seenExtra=0;
         double leftTravel=0, rightTravel=0;
         long lastTicks = Stopwatch.GetTimestamp();
+        long powerReadAt = lastTicks;
+        int powerInfo = 0, preferCommonControls = 0;
+        bool loggedCommonPower = false;
         bool accepting = true;
         var outputGate = new object();
+        BluetoothMotion? motionConnection = null;
         void Received(GattCharacteristic sender, GattValueChangedEventArgs args)
         {
-            long receivedAt = Stopwatch.GetTimestamp();
+            try { ReceivePacket(ReadBuffer(args.CharacteristicValue), Stopwatch.GetTimestamp(), common: false); }
+            catch (Exception error) { AppLog.Write("error", "输入读取失败：" + error.Message); disconnected.TrySetException(error); }
+        }
+        void ReceivePacket(byte[] packet, long receivedAt, bool common)
+        {
             lock (outputGate) {
                 if (!accepting) return;
                 try {
-                    var decoded = ControllerProtocol.Decode(ReadBuffer(args.CharacteristicValue), calibration[0], calibration[1], settings.Layout, settings.Deadzone);
+                    if (!common && packet.Length >= 11) Volatile.Write(ref powerInfo, packet[1]);
+                    bool powerSnapshot = motionConnection?.NativePowerSnapshotActive == true;
+                    if (!common && Volatile.Read(ref preferCommonControls) != 0 && !powerSnapshot) return;
+                    if (common && powerSnapshot) return;
+                    var decoded = common ? ControllerProtocol.DecodeCommon(packet, calibration[0], calibration[1], settings.Layout, settings.Deadzone, (byte)Volatile.Read(ref powerInfo)) :
+                        ControllerProtocol.Decode(packet, calibration[0], calibration[1], settings.Layout, settings.Deadzone);
                     performance.RecordReport(receivedAt);
                     output.Update(decoded.Xbox, receivedAt);
                     if (Stopwatch.GetElapsedTime(Interlocked.Read(ref lastTicks)).TotalSeconds > 1)
                         rumble?.SetInputAvailable(false);
-                    rumble?.SetInputAvailable(!systemSuspended);
+                    rumble?.SetInputAvailable(!systemSuspended && motion?.Status.Calibrating != true);
                     var previous = input;
                     input = decoded;
                     if (previous is null || previous.IsCharging != decoded.IsCharging || previous.HasExternalPower != decoded.HasExternalPower)
@@ -296,6 +321,14 @@ public sealed class ControllerService(AppSettings settings, EnhancementService e
             }
         }
         reportCharacteristic.ValueChanged += Received;
+        MotionSession? motionSession = null;
+        void SaveMotionCalibration()
+        {
+            if (motionSession?.TakeCalibration() is not { } bias) return;
+            settings.MotionCalibration = new(mac, bias);
+            try { settings.Save(); AppLog.Write("info", "体感静止零点已保存到本机，未写入手柄"); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { AppLog.Write("warn", "体感校准未能保存：" + error.Message); }
+        }
         try {
             Stage("订阅手柄输入");
             var subscribed = await NativeOperation.WaitAsync(reportCharacteristic.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify), token, 10);
@@ -306,12 +339,43 @@ public sealed class ControllerService(AppSettings settings, EnhancementService e
             catch (Exception error) when (error is IOException or UnauthorizedAccessException) { AppLog.Write("warn", "手柄已连接，但无法记住地址：" + error.Message); }
             AppLog.Write("info", $"蓝牙与 {OutputName} 输出已连接，未写入配对资料");
             long subscribedAt = Stopwatch.GetTimestamp();
+            if (output is ViiperGamepad nativeMotion && settings.DualSenseMotionEnabled) {
+                var saved = settings.MotionCalibration;
+                motionSession = new(saved?.Address == mac ? saved.Bias : null);
+                motion = motionSession; motionOutput = nativeMotion;
+                var motionCharacteristic = characteristics.Characteristics.FirstOrDefault(x => x.Uuid == MotionProtocol.InputUuid);
+                if (motionCharacteristic is null) motionSession.Unavailable("这只手柄未提供体感通道，按键与震动可继续使用。");
+                else motionConnection = await BluetoothMotion.StartAsync(motionCharacteristic, reportCharacteristic, command, response,
+                    motionSession, nativeMotion, () => !systemSuspended && input is not null &&
+                        Stopwatch.GetElapsedTime(Interlocked.Read(ref lastTicks)).TotalSeconds < 1,
+                    (packet, at) => ReceivePacket(packet, at, common: true),
+                    common => {
+                        lock (outputGate) {
+                            Volatile.Write(ref preferCommonControls, common ? 1 : 0);
+                            input = null; output.Update(default); nativeMotion.UpdateMotion(null); rumble?.SetInputAvailable(false);
+                        }
+                    }, token);
+            }
             while (!token.IsCancellationRequested && !disconnected.Task.IsCompleted) {
                 await Task.Delay(250, token);
+                SaveMotionCalibration();
+                if (motionConnection?.CommonInputIsPrimary == true && motionSession?.Status.Calibrating != true &&
+                    Stopwatch.GetElapsedTime(powerReadAt).TotalSeconds >= (loggedCommonPower ? 30 : 3)) {
+                    powerReadAt = Stopwatch.GetTimestamp();
+                    try {
+                        await motionConnection.RefreshPowerAsync(token);
+                        if (!loggedCommonPower) {
+                            AppLog.Write("info", $"公共输入模式已刷新原电源报告 · Power={Volatile.Read(ref powerInfo):X2}");
+                        }
+                    } catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+                    catch (TimeoutException) { AppLog.Write("warn", "电量通知暂未收到，已恢复公共输入并保留上次读数"); }
+                    finally { loggedCommonPower = true; }
+                }
                 bool receiving;
                 lock (outputGate) {
                     receiving = input is not null && Stopwatch.GetElapsedTime(Interlocked.Read(ref lastTicks)).TotalSeconds <= 1;
-                    if (!receiving) { output.Update(default); input = null; rumble?.SetInputAvailable(false); }
+                    if (!receiving) { output.Update(default); input = null; rumble?.SetInputAvailable(false);
+                        motionSession?.Clear("等待按键输入恢复后重新接收体感…"); motionOutput?.UpdateMotion(null); }
                 }
                 long total = Interlocked.Read(ref count), now = Stopwatch.GetTimestamp();
                 if (total == 0 && Stopwatch.GetElapsedTime(subscribedAt, now).TotalSeconds > 10)
@@ -330,6 +394,9 @@ public sealed class ControllerService(AppSettings settings, EnhancementService e
                 catch (Exception error) { AppLog.Write("warn", "清除游戏输入时输出已断开：" + error.Message); }
             }
             reportCharacteristic.ValueChanged -= Received;
+            SaveMotionCalibration();
+            motion = null; motionOutput = null;
+            if (motionConnection is not null) await motionConnection.DisposeAsync();
             output.InputForwarded -= performance.RecordForward;
             if (rumble is not null) {
                 output.RumbleChanged -= rumble.SubmitXbox;

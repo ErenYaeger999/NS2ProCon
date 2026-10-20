@@ -108,10 +108,26 @@ public static class ControllerProtocol
 
     public static byte[] CalibrationReadRequest(uint address)
     {
-        // The only proprietary output command used by the application: memory READ 02/04.
+        // Calibration reads memory with 02/04; no flash write or pairing command.
         byte[] request = [0x02, 0x91, 0x01, 0x04, 0, 8, 0, 0, 11, 0x7e, 0, 0, 0, 0, 0, 0];
         BinaryPrimitives.WriteUInt32LittleEndian(request.AsSpan(12), address);
         return request;
+    }
+
+    public static ControllerInput DecodeCommon(ReadOnlySpan<byte> data, StickCalibration leftCalibration,
+        StickCalibration rightCalibration, ButtonLayout layout, double deadzone, byte powerInfo)
+    {
+        if (data.Length < 16) throw new ArgumentException("公共输入报告不完整");
+        // BLE 0x05 buttons/sticks -> the same logical state used by our 0x09 decoder.
+        Span<byte> pro = stackalloc byte[11]; pro.Clear(); pro[0] = data[0]; pro[1] = powerInfo;
+        uint buttons = BinaryPrimitives.ReadUInt32LittleEndian(data[4..]);
+        foreach (var (source, target, bit) in new (int, int, byte)[] {
+            (0,2,4),(1,2,8),(2,2,1),(3,2,2),(6,2,16),(7,2,32),(9,2,64),(10,2,128),
+            (16,3,1),(18,3,2),(19,3,4),(17,3,8),(22,3,16),(23,3,32),(8,3,64),(11,3,128),
+            (12,4,1),(13,4,2),(24,4,4),(25,4,8),(14,4,16) })
+            if ((buttons & (1u << source)) != 0) pro[target] |= bit;
+        data.Slice(10, 6).CopyTo(pro[5..]);
+        return Decode(pro, leftCalibration, rightCalibration, layout, deadzone);
     }
 
     public static bool IsPressed(string name, ControllerInput? state)

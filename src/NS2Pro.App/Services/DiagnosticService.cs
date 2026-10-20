@@ -24,6 +24,7 @@ internal static class DiagnosticService
             .AppendLine($"增强管理：{settings.ManageHapticBackend} · 端口：{EnhancementService.Port(settings)}")
             .AppendLine($"组件目标版本：VIIPER {EnhancementComponents.BackendVersion} · USBIP {EnhancementComponents.DriverVersion}")
             .AppendLine($"增强状态：{enhancement.Status.Phase} · {enhancement.Status.Message}\n{enhancement.Status.Detail}")
+            .AppendLine($"六轴体感：{settings.DualSenseMotionEnabled} · {controller.Motion?.Message ?? "未启用 DualSense 体感连接"} · {controller.Motion?.Hertz ?? 0:F1} Hz")
             .AppendLine($"回报率：{metrics.Hertz:F1} Hz · 报告间隔：{metrics.IntervalMilliseconds:F2} ms")
             .AppendLine($"本机转发：中位 {Time(metrics.ForwardMedianMilliseconds)} · P95 {Time(metrics.ForwardP95Milliseconds)} · {metrics.Samples} 样本（不代表端到端延迟）");
         try {

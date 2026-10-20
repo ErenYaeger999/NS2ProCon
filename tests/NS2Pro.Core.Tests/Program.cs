@@ -144,6 +144,7 @@ Check(SystemRequirements.GetIssue(new Version(10,0,26100),Architecture.X86) is n
 if (OperatingSystem.IsWindows()) passed += SingleInstanceChecks.Run();
 passed += await HapticChecks.RunAsync();
 passed += await NativeHapticChecks.RunAsync();
+passed += MotionChecks.Run();
 passed += await UpdateChecks.RunAsync();
 passed += await EnhancementChecks.RunAsync();
 passed += AudioDefaultChecks.Run();
