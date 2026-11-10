@@ -52,7 +52,11 @@ internal static class HapticChecks
             Check(records.Count > count + 2 && Active(records.Last()), "held state refreshes without another game callback");
             for (int i = 1; i <= 1000; i++) session.SubmitXbox((byte)(i % 255 + 1), 45);
             session.SubmitXbox(12, 34);
-            await Until(() => session.Status.Writes > count + 5);
+            // Earlier refreshes may already exceed the old absolute write threshold.
+            // Wait for fresh completed writes after the final submission, including
+            // one potentially in-flight packet that was encoded before it.
+            int writtenAfterBurst = records.Count;
+            await Until(() => records.Count >= writtenAfterBurst + 2);
             Check(session.Status.Coalesced > 900 && maximumFlight == 1, "bursts coalesce with one writer");
             Check(ReadMotor(records.Last(), 2) == ReadMotor(HapticProtocol.EncodeBluetooth(HapticProtocol.FromXbox(12, 34), 0, 1), 2), "latest state wins instead of replaying a backlog");
             session.Configure(false, 1);
