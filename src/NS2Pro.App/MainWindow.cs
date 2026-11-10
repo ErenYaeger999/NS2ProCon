@@ -524,10 +524,12 @@ public sealed partial class MainWindow : Window
         if (pageFailed || !cachedPages.ContainsKey(selectedPage)) return;
         var state = controller.Input;
         if (selectedPage is "overview" or "test") controllerView.Update(state);
-        batteryText.Text = state is null ? "—" : $"{state.BatteryPercent}%";
-        live.batteryIcon.Update(state?.BatteryPercent, state?.IsCharging ?? false, state?.HasExternalPower ?? false);
-        live.batteryState.Text = state?.IsCharging == true ? "正在充电" : "已接电源，未充电";
-        live.batteryState.Visibility = state is { IsCharging: true } or { HasExternalPower: true } ? Visibility.Visible : Visibility.Collapsed;
+        int? battery = controller.HasBatteryReading ? state?.BatteryPercent : null;
+        bool snapshot = controller.BatteryIsSnapshot;
+        batteryText.Text = battery is null ? "—" : $"{battery}%";
+        live.batteryIcon.Update(battery, state?.IsCharging ?? false, state?.HasExternalPower ?? false, snapshot);
+        live.batteryState.Text = snapshot ? "上次读取" : state?.IsCharging == true ? "正在充电" : "已接电源，未充电";
+        live.batteryState.Visibility = battery is not null && (snapshot || state is { IsCharging: true } or { HasExternalPower: true }) ? Visibility.Visible : Visibility.Collapsed;
         inputText.Text = state is null ? "尚未接收输入 · 连接后自动开始检测" : $"● 正在接收 · {controller.Info.Hertz:F1} Hz · {controller.Info.Reports:N0} 份报告";
         leftPlot.Update(state?.UnfilteredLeft, state?.Left, settings.Deadzone); rightPlot.Update(state?.UnfilteredRight, state?.Right, settings.Deadzone);
         live.leftTriggerState.Text = state is null ? "等待输入" : state.Xbox.LeftTrigger > 0 ? "已按下" : "未按下";

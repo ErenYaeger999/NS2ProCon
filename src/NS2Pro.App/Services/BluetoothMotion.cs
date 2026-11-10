@@ -5,7 +5,8 @@ using Windows.Storage.Streams;
 
 namespace NS2Pro.App.Services;
 
-/// <summary>Optional FD2 subscription; failure leaves the existing button/rumble path usable.</summary>
+/// <summary>Optional FD2 subscription. Native input fallback requires settled GATT
+/// operations and real input; uncertain operations end the physical session.</summary>
 internal sealed class BluetoothMotion : IAsyncDisposable
 {
     private readonly GattCharacteristic input, proInput, command, response;
@@ -13,77 +14,84 @@ internal sealed class BluetoothMotion : IAsyncDisposable
     private readonly ViiperGamepad output;
     private readonly Func<bool> canReceive;
     private readonly Action<byte[], long> commonInput;
+    private readonly GattOperationLane lane;
+    private readonly InputStreamSession physical;
     private readonly TaskCompletionSource firstData = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly object gate = new(), ackGate = new();
     private TaskCompletionSource<byte[]>? pending;
     private byte expectedCommand, expectedSubcommand;
     private bool accepting, enableAttempted, firstSample = true, firstNotification = true;
     private bool commonPrimary;
-    private bool powerSnapshot;
     private int disposed;
 
     public bool CommonInputIsPrimary => Volatile.Read(ref commonPrimary);
-    public bool NativePowerSnapshotActive => Volatile.Read(ref powerSnapshot);
 
     private BluetoothMotion(GattCharacteristic input, GattCharacteristic proInput, GattCharacteristic command, GattCharacteristic response,
-        MotionSession samples, ViiperGamepad output, Func<bool> canReceive, Action<byte[], long> commonInput)
+        MotionSession samples, ViiperGamepad output, Func<bool> canReceive, Action<byte[], long> commonInput,
+        GattOperationLane lane, InputStreamSession physical)
     {
         this.input = input; this.proInput = proInput; this.command = command; this.response = response;
         this.samples = samples; this.output = output; this.canReceive = canReceive;
-        this.commonInput = commonInput;
+        this.commonInput = commonInput; this.lane = lane; this.physical = physical;
     }
 
     public static async Task<BluetoothMotion> StartAsync(GattCharacteristic input, GattCharacteristic proInput, GattCharacteristic command,
         GattCharacteristic response, MotionSession samples, ViiperGamepad output, Func<bool> canReceive,
-        Action<byte[], long> commonInput, Action<bool> commonModeChanged, CancellationToken token)
+        Action<byte[], long> commonInput, Action<bool> commonModeChanged, GattOperationLane lane, InputStreamSession physical, CancellationToken token)
     {
-        var connection = new BluetoothMotion(input, proInput, command, response, samples, output, canReceive, commonInput);
+        var connection = new BluetoothMotion(input, proInput, command, response, samples, output, canReceive, commonInput, lane, physical);
         try {
             connection.accepting = true;
             input.ValueChanged += connection.Received;
             response.ValueChanged += connection.Acknowledged;
-            await SubscribeAsync(response, token);
+            await connection.SubscribeAsync(response, token);
             await connection.WriteFeatureAsync(2, token);
             connection.enableAttempted = true;
             await connection.WriteFeatureAsync(4, token);
             // Firmware may not route common reports while native 0x09 notifications are active.
             // A successful CCCD/ACK is not evidence that any IMU data has actually arrived.
-            await SubscribeAsync(input, token);
+            await connection.SubscribeAsync(input, token);
             if (!await connection.WaitForDataAsync(600, token)) {
                 AppLog.Write("info", "未收到并行体感通知，切换为公共报告同时接收按键与六轴");
-                if (await NativeOperation.WaitAsync(proInput.WriteClientCharacteristicConfigurationDescriptorAsync(
-                    GattClientCharacteristicConfigurationDescriptorValue.None), token, 3) != GattCommunicationStatus.Success)
+                if (await lane.RunAsync("停用原按键通知，准备 FD2", () => proInput.WriteClientCharacteristicConfigurationDescriptorAsync(
+                    GattClientCharacteristicConfigurationDescriptorValue.None), token) != GattCommunicationStatus.Success)
                     throw new IOException("无法切换公共输入通道");
                 commonModeChanged(true);
                 Volatile.Write(ref connection.commonPrimary, true);
                 await connection.WriteCommandAsync(MotionProtocol.SelectReportRequest(5), token);
-                await SubscribeAsync(input, token);
+                await connection.SubscribeAsync(input, token);
                 if (!await connection.WaitForDataAsync(600, token)) {
                     AppLog.Write("info", "正在启动公共报告传输，未写入主机地址或配对资料");
                     await connection.WriteCommandAsync(MotionProtocol.StartPublicReportsRequest(), token);
                     await connection.WriteFeatureAsync(2, token);
                     await connection.WriteFeatureAsync(4, token);
                     await connection.WriteCommandAsync(MotionProtocol.SelectReportRequest(5), token);
-                    await SubscribeAsync(input, token);
+                    await connection.SubscribeAsync(input, token);
                     if (!await connection.WaitForDataAsync(1500, token)) {
-                        var read = await NativeOperation.WaitAsync(input.ReadValueAsync(Windows.Devices.Bluetooth.BluetoothCacheMode.Uncached), token, 2);
-                        AppLog.Write("warn", $"公共体感首帧超时 · 直接读取 {read.Status} · {read.Value?.Length ?? 0} 字节");
                         throw new IOException("已订阅但没有收到有效体感首帧");
                     }
                 }
             }
-            AppLog.Write("info", connection.CommonInputIsPrimary ? "六轴已收到真实数据 · 公共报告承载按键与体感 · 定期订阅原报告刷新电量" :
+            AppLog.Write("info", connection.CommonInputIsPrimary ? "六轴已收到真实数据 · 公共报告承载按键与体感 · 输入通道保持固定，电量保留上次读取" :
                 "六轴已收到真实数据 · 与原按键通道并行");
             return connection;
         } catch (OperationCanceledException) when (token.IsCancellationRequested) {
             await connection.DisposeAsync(); throw;
         } catch (Exception error) {
             await connection.DisposeAsync();
+            if (!lane.IsUsable || !physical.IsOpen) throw;
             if (connection.CommonInputIsPrimary) {
                 commonModeChanged(false);
-                await SubscribeAsync(proInput, token);
+                long before = physical.Snapshot.Reports;
+                await connection.SubscribeAsync(proInput, token);
+                if (!await physical.WaitForInputAsync(before, TimeSpan.FromSeconds(2), token))
+                    throw new IOException("体感初始化未完成，原按键通知也未恢复输入，请重新连接。", error);
                 Volatile.Write(ref connection.commonPrimary, false);
                 AppLog.Write("info", "体感未就绪，已恢复原有按键输入通道");
+            } else if (physical.NextAction != InputStreamAction.Receiving) {
+                long before = physical.Snapshot.Reports;
+                if (!await physical.WaitForInputAsync(before, TimeSpan.FromSeconds(2), token))
+                    throw new IOException("体感初始化未完成，也未收到原按键输入，请重新连接。", error);
             }
             samples.Unavailable("体感初始化未完成，按键与震动可继续使用。请断开后重试。");
             AppLog.Write("warn", "可选体感初始化失败：" + error.Message);
@@ -91,10 +99,10 @@ internal sealed class BluetoothMotion : IAsyncDisposable
         }
     }
 
-    private static async Task SubscribeAsync(GattCharacteristic characteristic, CancellationToken token)
+    private async Task SubscribeAsync(GattCharacteristic characteristic, CancellationToken token)
     {
-        if (await NativeOperation.WaitAsync(characteristic.WriteClientCharacteristicConfigurationDescriptorAsync(
-            GattClientCharacteristicConfigurationDescriptorValue.Notify), token, 3) != GattCommunicationStatus.Success)
+        if (await lane.RunAsync("订阅通知 " + characteristic.Uuid, () => characteristic.WriteClientCharacteristicConfigurationDescriptorAsync(
+            GattClientCharacteristicConfigurationDescriptorValue.Notify), token) != GattCommunicationStatus.Success)
             throw new IOException("无法订阅体感蓝牙通道");
     }
 
@@ -112,7 +120,7 @@ internal sealed class BluetoothMotion : IAsyncDisposable
         lock (ackGate) { expectedCommand = request[0]; expectedSubcommand = request[3]; pending = completion; }
         try {
             using var writer = new DataWriter(); writer.WriteBytes(request);
-            if (await NativeOperation.WaitAsync(command.WriteValueAsync(writer.DetachBuffer(), GattWriteOption.WriteWithoutResponse), token, 2) != GattCommunicationStatus.Success)
+            if (await lane.RunAsync($"体感指令 {request[0]:X2}/{request[3]:X2} 写入", () => command.WriteValueAsync(writer.DetachBuffer(), GattWriteOption.WriteWithoutResponse), token, 2) != GattCommunicationStatus.Success)
                 throw new IOException("体感启用指令写入失败");
             var ack = await completion.Task.WaitAsync(TimeSpan.FromSeconds(2), token);
             if (request[0] == 0x0c && (ack.Length < 12 || ack.AsSpan(8, 4).ContainsAnyExcept((byte)0)))
@@ -136,7 +144,7 @@ internal sealed class BluetoothMotion : IAsyncDisposable
     {
         long at = Stopwatch.GetTimestamp();
         lock (gate) {
-            if (!accepting) return;
+            if (!accepting || !physical.IsOpen) return;
             try {
                 var packet = Buffer(args);
                 if (firstNotification) {
@@ -171,51 +179,28 @@ internal sealed class BluetoothMotion : IAsyncDisposable
         var data = new byte[args.CharacteristicValue.Length]; reader.ReadBytes(data); return data;
     }
 
-    // Native 0x09 is notify-only on this firmware. A read request returns ProtocolError.
-    // Briefly lease its notifications for a real power snapshot; its controls remain usable
-    // during the lease. Never infer a percentage from the common report's battery voltage.
-    public async Task RefreshPowerAsync(CancellationToken token)
-    {
-        var received = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        void PowerReceived(GattCharacteristic sender, GattValueChangedEventArgs args) {
-            if (args.CharacteristicValue.Length >= 11) received.TrySetResult();
-        }
-        proInput.ValueChanged += PowerReceived;
-        Volatile.Write(ref powerSnapshot, true);
-        try {
-            await SubscribeAsync(proInput, token);
-            await received.Task.WaitAsync(TimeSpan.FromMilliseconds(300), token);
-        } finally {
-            try {
-                // Cleanup is independent of caller cancellation, including partially completed subscriptions.
-                var restored = await NativeOperation.WaitAsync(proInput.WriteClientCharacteristicConfigurationDescriptorAsync(
-                    GattClientCharacteristicConfigurationDescriptorValue.None), CancellationToken.None, 2);
-                if (restored != GattCommunicationStatus.Success) throw new IOException("电量刷新后无法恢复公共输入通道，请重新连接。");
-            } finally {
-                Volatile.Write(ref powerSnapshot, false);
-                proInput.ValueChanged -= PowerReceived;
-            }
-        }
-    }
-
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0) return;
         lock (gate) { accepting = false; samples.Clear(); output.UpdateMotion(null); }
-        input.ValueChanged -= Received;
-        if (enableAttempted) {
-            try { using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(2)); await WriteFeatureAsync(5, stop.Token); }
+        try { input.ValueChanged -= Received; } catch (Exception) { }
+        using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        bool CanWrite() => !physical.TransportLost && lane.IsUsable && !cleanup.IsCancellationRequested;
+        if (enableAttempted && CanWrite()) {
+            try { await WriteFeatureAsync(5, cleanup.Token); }
             catch (Exception error) { AppLog.Write("warn", "体感关闭确认未完成：" + error.Message); }
         }
-        if (CommonInputIsPrimary) {
-            try { using var restore = new CancellationTokenSource(TimeSpan.FromSeconds(2)); await WriteCommandAsync(MotionProtocol.SelectReportRequest(9), restore.Token); }
+        if (CommonInputIsPrimary && CanWrite()) {
+            try { await WriteCommandAsync(MotionProtocol.SelectReportRequest(9), cleanup.Token); }
             catch (Exception error) { AppLog.Write("warn", "恢复默认报告的确认未完成：" + error.Message); }
         }
-        response.ValueChanged -= Acknowledged;
+        try { response.ValueChanged -= Acknowledged; } catch (Exception) { }
         foreach (var characteristic in new[] { input, response }) {
-            try { await NativeOperation.WaitAsync(characteristic.WriteClientCharacteristicConfigurationDescriptorAsync(
-                GattClientCharacteristicConfigurationDescriptorValue.None), CancellationToken.None, 2); }
-            catch (Exception) { }
+            if (!CanWrite()) break;
+            try { await lane.RunAsync("清理通知 " + characteristic.Uuid, () => characteristic.WriteClientCharacteristicConfigurationDescriptorAsync(
+                GattClientCharacteristicConfigurationDescriptorValue.None), cleanup.Token, 2); }
+            catch (Exception error) { AppLog.Write("warn", "体感通知清理未完成：" + error.Message); }
         }
+        if (!lane.IsUsable) AppLog.Write("warn", "停止后续 GATT 清理写入：操作状态未确认 · " + lane.FailedStage);
     }
 }

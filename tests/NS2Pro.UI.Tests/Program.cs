@@ -101,6 +101,46 @@ internal static class Program
                             !Descendants((DependencyObject)window.Content).OfType<Microsoft.UI.Xaml.Controls.HyperlinkButton>().Any(x => Equals(x.Content, "更换手柄")))
                             throw new Exception("Overview lacks cadence, honest host timing or change-controller action");
                         Passed.Add("Overview offers real report cadence, host-only forwarding time and an explicit change-controller action");
+                        var liveOverview = PageLive("overview");
+                        var batteryLabel = (Microsoft.UI.Xaml.Controls.TextBlock)liveOverview.GetType().GetField("batteryText")!.GetValue(liveOverview)!;
+                        var batteryState = (Microsoft.UI.Xaml.Controls.TextBlock)liveOverview.GetType().GetField("batteryState")!.GetValue(liveOverview)!;
+                        var batteryIcon = (NS2Pro.App.Controls.BatteryIcon)liveOverview.GetType().GetField("batteryIcon")!.GetValue(liveOverview)!;
+                        var lightning = (Microsoft.UI.Xaml.Shapes.Path)batteryIcon.GetType().GetField("lightning", Private)!.GetValue(batteryIcon)!;
+                        var liveRefresh = window.GetType().GetMethod("UpdateLiveInput", Private)!;
+                        var inputField = previewController.GetType().GetField("input", Private)!;
+                        inputField.SetValue(previewController, new NS2Pro.Core.ControllerInput(default, default, default, default, default, 0, 0, 0, 60, true, true));
+                        previewController.GetType().GetField("batteryIsSnapshot", Private)!.SetValue(previewController, true);
+                        liveRefresh.Invoke(window, null);
+                        if (batteryLabel.Text != "60%" || batteryState.Text != "上次读取" || batteryState.Visibility != Visibility.Visible || lightning.Visibility != Visibility.Collapsed ||
+                            !((string)Microsoft.UI.Xaml.Controls.ToolTipService.GetToolTip(batteryIcon)).Contains("不实时刷新"))
+                            throw new Exception("FD2 snapshot looks like live battery/charging telemetry");
+                        previewController.GetType().GetField("batteryIsSnapshot", Private)!.SetValue(previewController, false);
+                        liveRefresh.Invoke(window, null);
+                        if (lightning.Visibility != Visibility.Visible || batteryState.Text != "正在充电")
+                            throw new Exception("Live native charging display regressed");
+                        previewController.GetType().GetField("batteryUnavailable", Private)!.SetValue(previewController, true);
+                        liveRefresh.Invoke(window, null);
+                        if (batteryLabel.Text != "—" || lightning.Visibility != Visibility.Collapsed || batteryState.Visibility != Visibility.Collapsed)
+                            throw new Exception("Missing native power info is presented as an invented percentage");
+                        inputField.SetValue(previewController, null);
+                        previewController.GetType().GetField("batteryUnavailable", Private)!.SetValue(previewController, false);
+                        liveRefresh.Invoke(window, null);
+                        Passed.Add("FD2 battery snapshot is labelled and has no stale charging animation; live charging and unknown power remain distinct");
+                        var connectionRefresh = window.GetType().GetMethod("UpdateStatus", Private)!;
+                        var infoField = previewController.GetType().GetField("info", Private)!;
+                        var waitingInfo = new NS2Pro.App.Services.ConnectionInfo(NS2Pro.App.Services.ConnectionPhase.WaitingForInput, "输入中断，正在尝试恢复", Reports: 172);
+                        infoField.SetValue(previewController, waitingInfo); connectionRefresh.Invoke(window, [waitingInfo]);
+                        var currentButton = (Microsoft.UI.Xaml.Controls.Button)liveOverview.GetType().GetField("connectButton")!.GetValue(liveOverview)!;
+                        var currentHz = (Microsoft.UI.Xaml.Controls.TextBlock)liveOverview.GetType().GetField("hzText")!.GetValue(liveOverview)!;
+                        var outputHint = (Microsoft.UI.Xaml.Controls.TextBlock)liveOverview.GetType().GetField("outputStatus")!.GetValue(liveOverview)!;
+                        if (!Equals(currentButton.Content, "断开 PC 连接") || currentHz.Text != "—" || !outputHint.Text.Contains("等待手柄输入"))
+                            throw new Exception("Input loss looks ready or removes the explicit disconnect action");
+                        var errorInfo = new NS2Pro.App.Services.ConnectionInfo(NS2Pro.App.Services.ConnectionPhase.Error, "输入恢复失败，请重新连接");
+                        infoField.SetValue(previewController, errorInfo); connectionRefresh.Invoke(window, [errorInfo]);
+                        if (!Equals(currentButton.Content, "重试连接")) throw new Exception("Failed bounded recovery has no retry entry");
+                        var idleInfo = new NS2Pro.App.Services.ConnectionInfo(NS2Pro.App.Services.ConnectionPhase.Idle, "");
+                        infoField.SetValue(previewController, idleInfo); connectionRefresh.Invoke(window, [idleInfo]);
+                        Passed.Add("Input loss clears rate/readiness, keeps disconnect available, and failed recovery offers a fresh retry");
                         var motionRefresh = window.GetType().GetMethod("UpdateMotionUi", Private)!;
                         var motionCard = (Microsoft.UI.Xaml.Controls.Border)window.GetType().GetField("motionSettings", Private)!.GetValue(window)!;
                         var motionButton = (Microsoft.UI.Xaml.Controls.Button)window.GetType().GetField("motionCalibrate", Private)!.GetValue(window)!;
@@ -170,7 +210,7 @@ internal static class Program
                         window.GetType().GetMethod("SelectPage", Private)!.Invoke(window, ["overview"]);
                         string diagnostics = await NS2Pro.App.Services.DiagnosticService.CollectAsync(previewSettings, previewController,
                             (NS2Pro.App.Services.EnhancementService)manager, ["设备 AA:BB:CC:DD:EE:FF · " + Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)]);
-                        if (!diagnostics.Contains("回报率") || !diagnostics.Contains("本机转发") ||
+                        if (!diagnostics.Contains("回报率") || !diagnostics.Contains("本机转发") || !diagnostics.Contains("输入会话：") || !diagnostics.Contains("电量读取：") ||
                             !diagnostics.Contains("蓝牙适配器：") || diagnostics.Contains("Property key syntax error") ||
                             diagnostics.Contains("AA:BB:CC:DD:EE:FF") || diagnostics.Contains(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)))
                             throw new Exception("Diagnostics omit timing or expose the user directory / full controller address");

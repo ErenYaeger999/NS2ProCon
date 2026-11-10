@@ -12,7 +12,7 @@ public sealed class BatteryIcon : UserControl
     private readonly Border fill;
     private readonly TextBlock unknown;
     private readonly Microsoft.UI.Xaml.Shapes.Path lightning;
-    private (int Level, bool Charging, bool ExternalPower) previous = (int.MinValue, false, false);
+    private (int Level, bool Charging, bool ExternalPower, bool Snapshot) previous = (int.MinValue, false, false, false);
 
     public BatteryIcon()
     {
@@ -34,18 +34,19 @@ public sealed class BatteryIcon : UserControl
         Content = root; Update(null);
     }
 
-    public void Update(int? percent, bool isCharging = false, bool hasExternalPower = false)
+    public void Update(int? percent, bool isCharging = false, bool hasExternalPower = false, bool isSnapshot = false)
     {
         int level = percent is null ? -1 : Math.Clamp(percent.Value, 0, 100);
-        if (level < 0) isCharging = hasExternalPower = false;
-        var current = (level, isCharging, hasExternalPower);
+        if (level < 0 || isSnapshot) isCharging = hasExternalPower = false;
+        var current = (level, isCharging, hasExternalPower, isSnapshot);
         if (current == previous) return;
         previous = current;
         fill.Width = level < 0 ? 0 : 30 * level / 100.0;
         fill.Background = Brush(level <= 10 ? "D92D20" : level <= 20 ? "B77900" : "16803C");
         unknown.Visibility = level < 0 ? Visibility.Visible : Visibility.Collapsed;
         lightning.Visibility = isCharging ? Visibility.Visible : Visibility.Collapsed;
-        var description = level < 0 ? "手柄电量未知" : $"手柄电量 {level}% · {(isCharging ? "正在充电" : hasExternalPower ? "已接电源，未充电" : "电池供电")}";
+        var description = level < 0 ? "手柄电量未知" : isSnapshot ? $"手柄电量 {level}% · 上次读取；六轴连接保持固定输入通道，不实时刷新电量与充电状态。" :
+            $"手柄电量 {level}% · {(isCharging ? "正在充电" : hasExternalPower ? "已接电源，未充电" : "电池供电")}";
         AutomationProperties.SetName(this, description);
         ToolTipService.SetToolTip(this, description);
     }

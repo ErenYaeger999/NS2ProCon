@@ -149,5 +149,6 @@ passed += await UpdateChecks.RunAsync();
 passed += await EnhancementChecks.RunAsync();
 passed += AudioDefaultChecks.Run();
 passed += await WorkflowChecks.RunAsync();
+passed += await BluetoothLifetimeChecks.RunAsync();
 passed += await SecureChannelChecks.RunAsync();
 Console.WriteLine($"PASS: {passed} protocol, settings, haptics, updates and single-instance checks.");

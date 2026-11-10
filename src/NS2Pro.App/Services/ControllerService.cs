@@ -28,6 +28,12 @@ public sealed class ControllerService(AppSettings settings, EnhancementService e
     private readonly InputPerformance performance = new();
     private volatile MotionSession? motion;
     private volatile ViiperGamepad? motionOutput;
+    private volatile InputStreamSession? inputSession;
+    private volatile bool batteryIsSnapshot, batteryUnavailable;
+    private Task previousGattWork = Task.CompletedTask;
+    public bool BatteryIsSnapshot => batteryIsSnapshot;
+    public bool HasBatteryReading => !batteryUnavailable;
+    public InputStreamSnapshot? InputStream => inputSession?.Snapshot;
     public MotionStatus? Motion => motion?.Status;
     public bool CalibrateMotion()
     {
@@ -53,6 +59,10 @@ public sealed class ControllerService(AppSettings settings, EnhancementService e
     public void SetSystemSuspended(bool value)
     {
         systemSuspended = value;
+        if (value) {
+            inputSession?.End("系统进入休眠", lost: true);
+            if (info.HasLink) Publish(ConnectionPhase.WaitingForInput, "系统进入休眠；恢复后请重新长按 SYNC 连接。", info.Address, 0, info.Reports);
+        }
         motion?.Clear("等待恢复后的新体感数据…"); motionOutput?.UpdateMotion(null);
         haptics?.SetInputAvailable(false);
         AppLog.Write("info", value ? "系统即将休眠，停止震动" : "系统已恢复，清除旧震动，等待新反馈");
@@ -147,6 +157,7 @@ public sealed class ControllerService(AppSettings settings, EnhancementService e
             }
             bool reconnecting = false;
             while (!token.IsCancellationRequested) {
+                while (systemSuspended) await Task.Delay(250, token);
                 Publish(ConnectionPhase.Searching, reconnecting ? "连接已断开，请长按顶部 SYNC 重新连接" : "长按手柄顶部 SYNC，直到指示灯循环闪烁");
                 var found = await WaitForControllerAsync(token);
                 var attempt = new ConnectionAttempt();
@@ -207,6 +218,12 @@ public sealed class ControllerService(AppSettings settings, EnhancementService e
         AppLog.Write("info", $"发现 SYNC 广播，连接 {mac}；保留原有主机配对");
         void Stage(string name) { attempt.Stage = name; AppLog.Write("info", "连接阶段：" + name); }
         AppLog.Write("info", $"广播地址类型：{found.Type} · 信号 {found.Rssi} dBm");
+        if (!previousGattWork.IsCompleted) {
+            Stage("等待上次蓝牙请求结束");
+            Publish(ConnectionPhase.Connecting, "正在等待 Windows 结束上次蓝牙请求，可取消连接…", mac);
+            try { await StatefulOperationGate.WaitForSettlementAsync(previousGattWork, TimeSpan.FromSeconds(8), token); }
+            catch (TimeoutException error) { throw new IOException("Windows 尚未结束上次蓝牙请求，请稍候再重试连接。", error); }
+        }
         Stage("打开蓝牙设备");
         using var opening = CancellationTokenSource.CreateLinkedTokenSource(token);
         opening.CancelAfter(TimeSpan.FromSeconds(15));
@@ -215,208 +232,302 @@ public sealed class ControllerService(AppSettings settings, EnhancementService e
                 BluetoothLEDevice.FromBluetoothAddressAsync(address, found.Type), opening.Token, releaseLate: value => value?.Dispose()))
             ?? throw new InvalidOperationException("Windows 未能打开广播中的手柄。请重新长按 SYNC，并退出其他连接工具后重试。");
         AppLog.Write("info", $"蓝牙设备访问：{device.DeviceAccessInformation.CurrentStatus} · 当前连接 {device.ConnectionStatus}");
-        Stage("建立蓝牙会话");
-        using var session = await NativeOperation.WaitAsync(GattSession.FromDeviceIdAsync(device.BluetoothDeviceId), token,
-            releaseLate: value => value?.Dispose());
-        if (session is not null) session.MaintainConnection = true;
-        using var preference = TryRequestThroughput(device);
-        Stage("读取手柄服务");
-        var discovery = await NativeOperation.WaitAsync(device.GetGattServicesForUuidAsync(ServiceUuid, BluetoothCacheMode.Uncached), token, 20,
-            value => { foreach (var item in value.Services) item.Dispose(); });
-        using var discoveredServices = new ServiceCollection(discovery.Services);
-        AppLog.Write("info", $"服务读取：{discovery.Status} · 协议错误 {discovery.ProtocolError?.ToString("X2") ?? "无"} · 数量 {discovery.Services.Count}");
-        if (discovery.Status != GattCommunicationStatus.Success || discovery.Services.Count == 0)
-            throw new InvalidOperationException($"未能读取手柄服务（{discovery.Status}），请重新长按 SYNC，并检查是否有其他连接工具占用。");
-        var service = discovery.Services[0];
-        Stage("读取输入通道");
-        var characteristics = await NativeOperation.WaitAsync(service.GetCharacteristicsAsync(BluetoothCacheMode.Uncached), token);
-        AppLog.Write("info", $"通道读取：{characteristics.Status} · 协议错误 {characteristics.ProtocolError?.ToString("X2") ?? "无"} · 数量 {characteristics.Characteristics.Count}");
-        if (characteristics.Status != GattCommunicationStatus.Success) throw new InvalidOperationException($"无法读取手柄输入通道（{characteristics.Status}）");
-        GattCharacteristic Find(Guid id) => characteristics.Characteristics.FirstOrDefault(x => x.Uuid == id)
-            ?? throw new InvalidOperationException($"手柄缺少所需蓝牙通道 {id}");
-        var command = Find(CommandUuid);
-        var response = Find(ResponseUuid);
-        var reportCharacteristic = Find(InputUuid);
-        Stage("读取摇杆校准");
-        var calibration = await ReadCalibrationsAsync(command, response, token);
-        Stage("创建游戏输出");
-        await using var audio = activeOutputMode == GameOutputMode.DualSenseExperimental ? await EnhancedAudioGuard.StartAsync(token) : null;
-        using IGameOutput output = activeOutputMode == GameOutputMode.Xbox ? new VirtualGamepad() :
-            await ViiperGamepad.CreateAsync(EnhancementService.Port(settings), token);
-        performance.Reset(); output.InputForwarded += performance.RecordForward;
-        if (audio is not null) await audio.WaitForProtectionAsync(token);
-        HapticSession? rumble = null;
-        Interlocked.Exchange(ref nativeHapticAt, 0);
-        void NativeFeedback(HapticFrame frame) {
-            if (!frame.IsSilent) Interlocked.Exchange(ref nativeHapticAt, Stopwatch.GetTimestamp());
-            rumble?.SubmitRich(frame);
-        }
-        var vibration = characteristics.Characteristics.FirstOrDefault(x => x.Uuid == HapticProtocol.BluetoothUuid);
-        if (vibration is not null && output.FeedbackAvailable &&
-            vibration.CharacteristicProperties.HasFlag(GattCharacteristicProperties.WriteWithoutResponse)) {
-            rumble = new HapticSession(async (packet, cancellationToken) => {
-                using var writer = new DataWriter(); writer.WriteBytes(packet);
-                var result = await vibration.WriteValueAsync(writer.DetachBuffer(), GattWriteOption.WriteWithoutResponse).AsTask(cancellationToken);
-                if (result != GattCommunicationStatus.Success) throw new IOException("蓝牙震动写入失败：" + result);
-            }, settings.RumbleEnabled, settings.RumbleStrength, text => AppLog.Write("warn", text));
-            haptics = rumble;
-            output.RumbleChanged += rumble.SubmitXbox;
-            if (output is ViiperGamepad native) native.NativeHaptics += NativeFeedback;
-            AppLog.Write("info", "游戏震动反馈已注册 · 独立 BLE 写入 · 保留主机配对");
-        } else {
-            hapticMessage = vibration is null ? "手柄未提供震动通道，按键连接可继续使用" :
-                !output.FeedbackAvailable ? "游戏震动回调不可用，按键连接可继续使用" : "手柄震动通道不可写入，按键连接可继续使用";
-            AppLog.Write("warn", hapticMessage);
-        }
-        var disconnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        device.ConnectionStatusChanged += (_, _) => {
-            if (device.ConnectionStatus == BluetoothConnectionStatus.Disconnected) disconnected.TrySetResult();
-        };
-        var clock = Stopwatch.StartNew();
-        long count = 0;
-        int seenRight=0, seenLeft=0, seenExtra=0;
-        double leftTravel=0, rightTravel=0;
-        long lastTicks = Stopwatch.GetTimestamp();
-        long powerReadAt = lastTicks;
-        int powerInfo = 0, preferCommonControls = 0;
-        bool loggedCommonPower = false;
-        bool accepting = true;
-        var outputGate = new object();
-        BluetoothMotion? motionConnection = null;
-        void Received(GattCharacteristic sender, GattValueChangedEventArgs args)
+        using var physical = new InputStreamSession(token);
+        inputSession = physical;
+        var lane = new GattOperationLane(physical);
+        int sawConnected = device.ConnectionStatus == BluetoothConnectionStatus.Connected ? 1 : 0;
+        void StatusChanged(BluetoothLEDevice sender, object args)
         {
-            try { ReceivePacket(ReadBuffer(args.CharacteristicValue), Stopwatch.GetTimestamp(), common: false); }
-            catch (Exception error) { AppLog.Write("error", "输入读取失败：" + error.Message); disconnected.TrySetException(error); }
-        }
-        void ReceivePacket(byte[] packet, long receivedAt, bool common)
-        {
-            lock (outputGate) {
-                if (!accepting) return;
-                try {
-                    if (!common && packet.Length >= 11) Volatile.Write(ref powerInfo, packet[1]);
-                    bool powerSnapshot = motionConnection?.NativePowerSnapshotActive == true;
-                    if (!common && Volatile.Read(ref preferCommonControls) != 0 && !powerSnapshot) return;
-                    if (common && powerSnapshot) return;
-                    var decoded = common ? ControllerProtocol.DecodeCommon(packet, calibration[0], calibration[1], settings.Layout, settings.Deadzone, (byte)Volatile.Read(ref powerInfo)) :
-                        ControllerProtocol.Decode(packet, calibration[0], calibration[1], settings.Layout, settings.Deadzone);
-                    performance.RecordReport(receivedAt);
-                    output.Update(decoded.Xbox, receivedAt);
-                    if (Stopwatch.GetElapsedTime(Interlocked.Read(ref lastTicks)).TotalSeconds > 1)
-                        rumble?.SetInputAvailable(false);
-                    rumble?.SetInputAvailable(!systemSuspended && motion?.Status.Calibrating != true);
-                    var previous = input;
-                    input = decoded;
-                    if (previous is null || previous.IsCharging != decoded.IsCharging || previous.HasExternalPower != decoded.HasExternalPower)
-                        AppLog.Write("info", $"手柄电源：{decoded.BatteryPercent}% · {(decoded.IsCharging ? "正在充电" : decoded.HasExternalPower ? "已接电源，未充电" : "电池供电")}");
-                    Interlocked.Increment(ref count);
-                    seenRight |= decoded.RightButtons; seenLeft |= decoded.LeftButtons; seenExtra |= decoded.ExtraButtons;
-                    leftTravel=Math.Max(leftTravel,Math.Sqrt(decoded.UnfilteredLeft.X*decoded.UnfilteredLeft.X+decoded.UnfilteredLeft.Y*decoded.UnfilteredLeft.Y));
-                    rightTravel=Math.Max(rightTravel,Math.Sqrt(decoded.UnfilteredRight.X*decoded.UnfilteredRight.X+decoded.UnfilteredRight.Y*decoded.UnfilteredRight.Y));
-                    if(count==1)AppLog.Write("info","已收到首份输入报告，实时检测已开始");
-                    Interlocked.Exchange(ref lastTicks, Stopwatch.GetTimestamp());
-                } catch (Exception error) {
-                    AppLog.Write("error", "输入输出失败：" + error.Message);
-                    disconnected.TrySetException(error);
+            try {
+                if (sender.ConnectionStatus == BluetoothConnectionStatus.Connected) Interlocked.Exchange(ref sawConnected, 1);
+                else if (Volatile.Read(ref sawConnected) != 0 || physical.Snapshot.Reports > 0) {
+                    if (physical.IsOpen) AppLog.Write("warn", $"蓝牙连接状态已断开 · 最后有效输入距今 {physical.Snapshot.LastInputAgeSeconds:F2} 秒");
+                    physical.End("蓝牙连接已断开", lost: true);
                 }
-            }
+            } catch (Exception error) { physical.End("蓝牙会话已失效", lost: true, error: error); }
         }
-        reportCharacteristic.ValueChanged += Received;
-        MotionSession? motionSession = null;
-        void SaveMotionCalibration()
-        {
-            if (motionSession?.TakeCalibration() is not { } bias) return;
-            settings.MotionCalibration = new(mac, bias);
-            try { settings.Save(); AppLog.Write("info", "体感静止零点已保存到本机，未写入手柄"); }
-            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { AppLog.Write("warn", "体感校准未能保存：" + error.Message); }
-        }
-        try {
-            Stage("订阅手柄输入");
-            var subscribed = await NativeOperation.WaitAsync(reportCharacteristic.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify), token, 10);
-            if (subscribed != GattCommunicationStatus.Success) throw new InvalidOperationException($"无法订阅手柄输入（{subscribed}）");
-            Stage("等待首份输入");
-            settings.LastControllerAddress = mac;
-            try { settings.Save(); }
-            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { AppLog.Write("warn", "手柄已连接，但无法记住地址：" + error.Message); }
-            AppLog.Write("info", $"蓝牙与 {OutputName} 输出已连接，未写入配对资料");
-            long subscribedAt = Stopwatch.GetTimestamp();
-            if (output is ViiperGamepad nativeMotion && settings.DualSenseMotionEnabled) {
-                var saved = settings.MotionCalibration;
-                motionSession = new(saved?.Address == mac ? saved.Bias : null);
-                motion = motionSession; motionOutput = nativeMotion;
-                var motionCharacteristic = characteristics.Characteristics.FirstOrDefault(x => x.Uuid == MotionProtocol.InputUuid);
-                if (motionCharacteristic is null) motionSession.Unavailable("这只手柄未提供体感通道，按键与震动可继续使用。");
-                else motionConnection = await BluetoothMotion.StartAsync(motionCharacteristic, reportCharacteristic, command, response,
-                    motionSession, nativeMotion, () => !systemSuspended && input is not null &&
-                        Stopwatch.GetElapsedTime(Interlocked.Read(ref lastTicks)).TotalSeconds < 1,
-                    (packet, at) => ReceivePacket(packet, at, common: true),
-                    common => {
-                        lock (outputGate) {
-                            Volatile.Write(ref preferCommonControls, common ? 1 : 0);
-                            input = null; output.Update(default); nativeMotion.UpdateMotion(null); rumble?.SetInputAvailable(false);
-                        }
-                    }, token);
-            }
-            while (!token.IsCancellationRequested && !disconnected.Task.IsCompleted) {
-                await Task.Delay(250, token);
-                SaveMotionCalibration();
-                if (motionConnection?.CommonInputIsPrimary == true && motionSession?.Status.Calibrating != true &&
-                    Stopwatch.GetElapsedTime(powerReadAt).TotalSeconds >= (loggedCommonPower ? 30 : 3)) {
-                    powerReadAt = Stopwatch.GetTimestamp();
-                    try {
-                        await motionConnection.RefreshPowerAsync(token);
-                        if (!loggedCommonPower) {
-                            AppLog.Write("info", $"公共输入模式已刷新原电源报告 · Power={Volatile.Read(ref powerInfo):X2}");
-                        }
-                    } catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
-                    catch (TimeoutException) { AppLog.Write("warn", "电量通知暂未收到，已恢复公共输入并保留上次读数"); }
-                    finally { loggedCommonPower = true; }
-                }
-                bool receiving;
-                lock (outputGate) {
-                    receiving = input is not null && Stopwatch.GetElapsedTime(Interlocked.Read(ref lastTicks)).TotalSeconds <= 1;
-                    if (!receiving) { output.Update(default); input = null; rumble?.SetInputAvailable(false);
-                        motionSession?.Clear("等待按键输入恢复后重新接收体感…"); motionOutput?.UpdateMotion(null); }
-                }
-                long total = Interlocked.Read(ref count), now = Stopwatch.GetTimestamp();
-                if (total == 0 && Stopwatch.GetElapsedTime(subscribedAt, now).TotalSeconds > 10)
-                    throw new IOException("蓝牙已连接，但未收到手柄输入。请重试连接，并再次长按 SYNC。");
-                double hertz = performance.Snapshot.Hertz;
-                Publish(receiving ? ConnectionPhase.Connected : ConnectionPhase.WaitingForInput,
-                    receiving ? "已连接到 PC，可以开始游戏" : total == 0 ? "蓝牙已建立，正在等待手柄输入…" : "输入暂时中断，正在等待恢复…", mac, receiving ? hertz : 0, total);
-                if (receiving) attempt.Stage = "接收游戏输入";
-            }
-            if (disconnected.Task.IsCompleted) await disconnected.Task;
+        device.ConnectionStatusChanged += StatusChanged;
+        try { await ConnectDeviceAsync(device, mac, attempt, physical, lane); }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested && (physical.TransportLost || physical.Failure is not null)) {
+            if (physical.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
         } finally {
-            lock (outputGate) {
-                accepting = false; input = null;
-                // A failed optional backend must not prevent the physical stop/GATT cleanup.
-                try { output.Update(default); }
-                catch (Exception error) { AppLog.Write("warn", "清除游戏输入时输出已断开：" + error.Message); }
-            }
-            reportCharacteristic.ValueChanged -= Received;
-            SaveMotionCalibration();
-            motion = null; motionOutput = null;
-            if (motionConnection is not null) await motionConnection.DisposeAsync();
-            output.InputForwarded -= performance.RecordForward;
-            if (rumble is not null) {
-                output.RumbleChanged -= rumble.SubmitXbox;
-                if (output is ViiperGamepad native) native.NativeHaptics -= NativeFeedback;
-                await rumble.DisposeAsync(); // bounded final stop while GATT/session are still alive
-                var statistics = rumble.Status;
-                AppLog.Write("info", $"本次震动：反馈 {statistics.Feedback} 次 · 写入 {statistics.Writes} 次 · 合并 {statistics.Coalesced} 次 · 最慢写入 {statistics.MaxWriteMilliseconds:F1} ms");
-                if (output is ViiperGamepad nativeOutput) AppLog.Write("info", nativeOutput.FeedbackSummary);
-            }
-            haptics = null; hapticMessage = "连接手柄后可测试震动";
-            Interlocked.Exchange(ref nativeHapticAt, 0);
-            try { await NativeOperation.WaitAsync(reportCharacteristic.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.None), CancellationToken.None, 2); }
-            catch (Exception) { }
-            if (session is not null) session.MaintainConnection = false;
-            AppLog.Write("info", "蓝牙连接已释放");
-            AppLog.Write("info", $"本次输入：{count} 份 · {count/Math.Max(clock.Elapsed.TotalSeconds,.001):F1} Hz · R={seenRight:X2} L={seenLeft:X2} Extra={seenExtra:X2} · 摇杆最大行程 {leftTravel:P0}/{rightTravel:P0}");
-            var timing = performance.Snapshot;
-            if (timing.Samples > 0)
-                AppLog.Write("info", $"本机转发最近 2 秒：中位 {timing.ForwardMedianMilliseconds:F2} ms · P95 {timing.ForwardP95Milliseconds:F2} ms · {timing.Samples} 样本（不含无线及游戏延迟）");
+            physical.End("连接已结束");
+            previousGattWork = lane.WhenSettled;
+            try { device.ConnectionStatusChanged -= StatusChanged; } catch (Exception) { }
         }
+    }
+
+    private async Task ConnectDeviceAsync(BluetoothLEDevice device, string mac, ConnectionAttempt attempt,
+        InputStreamSession physical, GattOperationLane lane)
+    {
+        var token = physical.Token;
+        void Stage(string name) { attempt.Stage = name; AppLog.Write("info", "连接阶段：" + name); }
+        Stage("建立蓝牙会话");
+        using var session = await lane.RunAsync("建立 GATT 会话", () => GattSession.FromDeviceIdAsync(device.BluetoothDeviceId), token, 15,
+            releaseLate: value => value?.Dispose());
+        int sawActiveSession = session?.SessionStatus == GattSessionStatus.Active ? 1 : 0;
+        void SessionChanged(GattSession sender, GattSessionStatusChangedEventArgs args) {
+            if (args.Status == GattSessionStatus.Active) Interlocked.Exchange(ref sawActiveSession, 1);
+            else if (args.Error != BluetoothError.Success || Volatile.Read(ref sawActiveSession) != 0 || physical.Snapshot.Reports > 0) {
+                if (physical.IsOpen) AppLog.Write("warn", $"GATT 会话已结束 · {args.Status} · {args.Error}");
+                physical.End("GATT 会话已结束", lost: true);
+            }
+        }
+        if (session is not null) session.SessionStatusChanged += SessionChanged;
+        try {
+            if (session is not null) session.MaintainConnection = true;
+            using var preference = new ConnectionPreference(TryRequestThroughput(device));
+            Stage("读取手柄服务");
+            var discovery = await lane.RunAsync("读取手柄服务", () => device.GetGattServicesForUuidAsync(ServiceUuid, BluetoothCacheMode.Uncached), token, 20,
+                value => { foreach (var item in value.Services) item.Dispose(); });
+            using var discoveredServices = new ServiceCollection(discovery.Services);
+            AppLog.Write("info", $"服务读取：{discovery.Status} · 协议错误 {discovery.ProtocolError?.ToString("X2") ?? "无"} · 数量 {discovery.Services.Count}");
+            if (discovery.Status != GattCommunicationStatus.Success || discovery.Services.Count == 0)
+                throw new InvalidOperationException($"未能读取手柄服务（{discovery.Status}），请重新长按 SYNC，并检查是否有其他连接工具占用。");
+            var service = discovery.Services[0];
+            Stage("读取输入通道");
+            var characteristics = await lane.RunAsync("读取输入通道", () => service.GetCharacteristicsAsync(BluetoothCacheMode.Uncached), token, 15);
+            AppLog.Write("info", $"通道读取：{characteristics.Status} · 协议错误 {characteristics.ProtocolError?.ToString("X2") ?? "无"} · 数量 {characteristics.Characteristics.Count}");
+            if (characteristics.Status != GattCommunicationStatus.Success) throw new InvalidOperationException($"无法读取手柄输入通道（{characteristics.Status}）");
+            GattCharacteristic Find(Guid id) => characteristics.Characteristics.FirstOrDefault(x => x.Uuid == id)
+                ?? throw new InvalidOperationException($"手柄缺少所需蓝牙通道 {id}");
+            var command = Find(CommandUuid);
+            var response = Find(ResponseUuid);
+            var reportCharacteristic = Find(InputUuid);
+            Stage("读取摇杆校准");
+            var calibration = await ReadCalibrationsAsync(command, response, physical, lane, token);
+            Stage("创建游戏输出");
+            await using var audio = activeOutputMode == GameOutputMode.DualSenseExperimental ? await EnhancedAudioGuard.StartAsync(token) : null;
+            using IGameOutput output = activeOutputMode == GameOutputMode.Xbox ? new VirtualGamepad() :
+                await ViiperGamepad.CreateAsync(EnhancementService.Port(settings), token);
+            performance.Reset(); output.InputForwarded += performance.RecordForward;
+            if (audio is not null) await audio.WaitForProtectionAsync(token);
+            HapticSession? rumble = null;
+            Interlocked.Exchange(ref nativeHapticAt, 0);
+            void NativeFeedback(HapticFrame frame) {
+                if (!physical.IsOpen) return;
+                if (!frame.IsSilent) Interlocked.Exchange(ref nativeHapticAt, Stopwatch.GetTimestamp());
+                rumble?.SubmitRich(frame);
+            }
+            void XboxFeedback(byte low, byte high) { if (physical.IsOpen) rumble?.SubmitXbox(low, high); }
+            var vibration = characteristics.Characteristics.FirstOrDefault(x => x.Uuid == HapticProtocol.BluetoothUuid);
+            if (vibration is not null && output.FeedbackAvailable &&
+                vibration.CharacteristicProperties.HasFlag(GattCharacteristicProperties.WriteWithoutResponse)) {
+                rumble = new HapticSession(async (packet, cancellationToken) => {
+                    if (physical.TransportLost) return;
+                    if (!physical.IsOpen) packet = HapticProtocol.EncodeBluetooth(default, packet[1], 1);
+                    using var writer = new DataWriter(); writer.WriteBytes(packet);
+                    var result = await vibration.WriteValueAsync(writer.DetachBuffer(), GattWriteOption.WriteWithoutResponse).AsTask(cancellationToken);
+                    if (result != GattCommunicationStatus.Success) throw new IOException("蓝牙震动写入失败：" + result);
+                }, settings.RumbleEnabled, settings.RumbleStrength, text => AppLog.Write("warn", text));
+                haptics = rumble;
+                output.RumbleChanged += XboxFeedback;
+                if (output is ViiperGamepad native) native.NativeHaptics += NativeFeedback;
+                AppLog.Write("info", "游戏震动反馈已注册 · 独立 BLE 写入 · 保留主机配对");
+            } else {
+                hapticMessage = vibration is null ? "手柄未提供震动通道，按键连接可继续使用" :
+                    !output.FeedbackAvailable ? "游戏震动回调不可用，按键连接可继续使用" : "手柄震动通道不可写入，按键连接可继续使用";
+                AppLog.Write("warn", hapticMessage);
+            }
+            var clock = Stopwatch.StartNew();
+            long count = 0;
+            int seenRight=0, seenLeft=0, seenExtra=0;
+            double leftTravel=0, rightTravel=0;
+            long lastTicks = Stopwatch.GetTimestamp();
+            int powerInfo = 0;
+            batteryUnavailable = true; batteryIsSnapshot = false;
+            bool stalled = false;
+            bool accepting = true;
+            var outputGate = new object();
+            BluetoothMotion? motionConnection = null;
+            void Received(GattCharacteristic sender, GattValueChangedEventArgs args)
+            {
+                if (!physical.IsOpen) return;
+                try { ReceivePacket(ReadBuffer(args.CharacteristicValue), Stopwatch.GetTimestamp(), common: false); }
+                catch (Exception error) { AppLog.Write("error", "输入读取失败：" + error.Message); physical.End("输入读取失败", error: error); }
+            }
+            void ReceivePacket(byte[] packet, long receivedAt, bool common)
+            {
+                lock (outputGate) {
+                    if (!accepting || !physical.IsOpen) return;
+                    try {
+                        if (!common && packet.Length >= 11) { Volatile.Write(ref powerInfo, packet[1]); batteryUnavailable = false; }
+                        var source = common ? InputReportSource.Common : InputReportSource.Native;
+                        if (!physical.Accepts(source)) return;
+                        var decoded = common ? ControllerProtocol.DecodeCommon(packet, calibration[0], calibration[1], settings.Layout, settings.Deadzone, (byte)Volatile.Read(ref powerInfo)) :
+                            ControllerProtocol.Decode(packet, calibration[0], calibration[1], settings.Layout, settings.Deadzone);
+                        if (!physical.Record(source, receivedAt)) return;
+                        performance.RecordReport(receivedAt);
+                        output.Update(decoded.Xbox, receivedAt);
+                        if (Stopwatch.GetElapsedTime(Interlocked.Read(ref lastTicks)).TotalSeconds > 1)
+                            rumble?.SetInputAvailable(false);
+                        rumble?.SetInputAvailable(!systemSuspended && motion?.Status.Calibrating != true);
+                        var previous = input;
+                        input = decoded;
+                        if (previous is null || previous.IsCharging != decoded.IsCharging || previous.HasExternalPower != decoded.HasExternalPower)
+                            AppLog.Write("info", $"手柄电源：{decoded.BatteryPercent}% · {(decoded.IsCharging ? "正在充电" : decoded.HasExternalPower ? "已接电源，未充电" : "电池供电")}");
+                        Interlocked.Increment(ref count);
+                        seenRight |= decoded.RightButtons; seenLeft |= decoded.LeftButtons; seenExtra |= decoded.ExtraButtons;
+                        leftTravel=Math.Max(leftTravel,Math.Sqrt(decoded.UnfilteredLeft.X*decoded.UnfilteredLeft.X+decoded.UnfilteredLeft.Y*decoded.UnfilteredLeft.Y));
+                        rightTravel=Math.Max(rightTravel,Math.Sqrt(decoded.UnfilteredRight.X*decoded.UnfilteredRight.X+decoded.UnfilteredRight.Y*decoded.UnfilteredRight.Y));
+                        if(count==1)AppLog.Write("info","已收到首份输入报告，实时检测已开始");
+                        Interlocked.Exchange(ref lastTicks, Stopwatch.GetTimestamp());
+                    } catch (Exception error) {
+                        AppLog.Write("error", "输入输出失败：" + error.Message);
+                        physical.End("游戏输入输出异常", error: error);
+                    }
+                }
+            }
+            reportCharacteristic.ValueChanged += Received;
+            MotionSession? motionSession = null;
+            void SaveMotionCalibration()
+            {
+                if (motionSession?.TakeCalibration() is not { } bias) return;
+                settings.MotionCalibration = new(mac, bias);
+                try { settings.Save(); AppLog.Write("info", "体感静止零点已保存到本机，未写入手柄"); }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException) { AppLog.Write("warn", "体感校准未能保存：" + error.Message); }
+            }
+            try {
+                Stage("订阅手柄输入");
+                var subscribed = await lane.RunAsync("订阅原按键通知", () => reportCharacteristic.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify), token, 10);
+                if (subscribed != GattCommunicationStatus.Success) throw new InvalidOperationException($"无法订阅手柄输入（{subscribed}）");
+                physical.ArmInputDeadline();
+                Stage("等待首份输入");
+                settings.LastControllerAddress = mac;
+                try { settings.Save(); }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException) { AppLog.Write("warn", "手柄已连接，但无法记住地址：" + error.Message); }
+                AppLog.Write("info", $"蓝牙与 {OutputName} 输出已连接，未写入配对资料");
+                if (output is ViiperGamepad nativeMotion && settings.DualSenseMotionEnabled) {
+                    var saved = settings.MotionCalibration;
+                    motionSession = new(saved?.Address == mac ? saved.Bias : null);
+                    motion = motionSession; motionOutput = nativeMotion;
+                    var motionCharacteristic = characteristics.Characteristics.FirstOrDefault(x => x.Uuid == MotionProtocol.InputUuid);
+                    if (motionCharacteristic is null) motionSession.Unavailable("这只手柄未提供体感通道，按键与震动可继续使用。");
+                    else motionConnection = await BluetoothMotion.StartAsync(motionCharacteristic, reportCharacteristic, command, response,
+                        motionSession, nativeMotion, () => !systemSuspended && input is not null &&
+                            Stopwatch.GetElapsedTime(Interlocked.Read(ref lastTicks)).TotalSeconds < 1,
+                        (packet, at) => ReceivePacket(packet, at, common: true),
+                        common => {
+                            lock (outputGate) {
+                                physical.Select(common ? InputReportSource.Common : InputReportSource.Native);
+                                batteryIsSnapshot = common;
+                                input = null; rumble?.SetInputAvailable(false);
+                                try { output.Update(default); nativeMotion.UpdateMotion(null); }
+                                catch (Exception error) { physical.End("游戏输出已断开", error: error); throw; }
+                            }
+                        }, lane, physical, token);
+                }
+                while (physical.IsOpen) {
+                    await Task.Delay(250, token);
+                    // A link-close event can arrive during Delay. Never start another GATT
+                    // request or accept a callback on that expired session.
+                    token.ThrowIfCancellationRequested();
+                    if (!physical.IsOpen) break;
+                    SaveMotionCalibration();
+                    bool receiving;
+                    lock (outputGate) {
+                        receiving = !systemSuspended && input is not null && Stopwatch.GetElapsedTime(Interlocked.Read(ref lastTicks)).TotalSeconds <= 1;
+                        if (!receiving) { output.Update(default); input = null; rumble?.SetInputAvailable(false);
+                            motionSession?.Clear("等待按键输入恢复后重新接收体感…"); motionOutput?.UpdateMotion(null); }
+                    }
+                    var health = physical.Snapshot;
+                    if (!receiving && !stalled && health.Reports > 0) {
+                        stalled = true;
+                        AppLog.Write("warn", $"输入断流 · 通道 {health.Source} · 最后有效输入距今 {health.LastInputAgeSeconds:F2} 秒 · 累计 {health.Reports} 份 · 最近窗口 {performance.Snapshot.Hertz:F1} Hz");
+                    } else if (receiving && stalled) {
+                        stalled = false;
+                        AppLog.Write("info", $"真实输入已恢复 · 通道 {health.Source} · 累计 {health.Reports} 份");
+                    }
+                    long total = Interlocked.Read(ref count);
+                    if (total == 0 && physical.NextAction == InputStreamAction.Stop)
+                        throw new IOException("蓝牙已连接，但未收到手柄输入。请重试连接，并再次长按 SYNC。");
+                    if (!receiving && physical.NextAction == InputStreamAction.Recover) {
+                        Stage("恢复手柄输入");
+                        Publish(ConnectionPhase.WaitingForInput, "输入中断，正在尝试恢复；请操作按键或摇杆…", mac, 0, total);
+                        if (preference.Release()) AppLog.Write("info", "已释放本会话的吞吐优先请求，由系统决定连接参数");
+                        var primary = health.Source == InputReportSource.Common ? Find(MotionProtocol.InputUuid) : reportCharacteristic;
+                        async Task SetNotification(bool enabled, CancellationToken ct) {
+                            string step = (enabled ? "Notify 重新订阅 " : "None 停用通知 ") + health.Source;
+                            if (await lane.RunAsync(step, () => primary.WriteClientCharacteristicConfigurationDescriptorAsync(
+                                enabled ? GattClientCharacteristicConfigurationDescriptorValue.Notify : GattClientCharacteristicConfigurationDescriptorValue.None), ct) != GattCommunicationStatus.Success)
+                                throw new IOException(step + "失败");
+                            AppLog.Write("info", "GATT 已确认：" + step);
+                        }
+                        bool recovered;
+                        try {
+                            recovered = await physical.RecoverAsync(ct => SetNotification(false, ct), ct => SetNotification(true, ct), TimeSpan.FromSeconds(2));
+                        } catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+                        catch (Exception error) {
+                            AppLog.Write("warn", "输入恢复未完成 · " + physical.Snapshot.Recovery + " · " + error);
+                            throw new IOException("蓝牙输入恢复失败。请重新长按 SYNC 连接，并检查蓝牙驱动或其他连接工具。", error);
+                        }
+                        if (!recovered) throw new IOException("通知已重新订阅，但手柄仍未恢复输入。请重试连接，并检查蓝牙驱动或其他连接工具。");
+                        AppLog.Write("info", "输入恢复成功：已收到重新订阅后的有效首帧 · " + physical.Snapshot.Source);
+                        continue;
+                    }
+                    if (!receiving && total > 0 && physical.NextAction == InputStreamAction.Stop)
+                        throw new IOException("手柄输入再次中断，已结束本次连接。请重新长按 SYNC；反复出现时请检查蓝牙驱动和无线干扰。");
+                    double hertz = performance.Snapshot.Hertz;
+                    Publish(receiving ? ConnectionPhase.Connected : ConnectionPhase.WaitingForInput,
+                        receiving ? "已连接到 PC，可以开始游戏" : total == 0 ? "蓝牙已建立，正在等待手柄输入…" : "输入暂时中断，请操作按键或摇杆，正在等待恢复…", mac, receiving ? hertz : 0, total);
+                    if (receiving) attempt.Stage = "接收游戏输入";
+                }
+                token.ThrowIfCancellationRequested();
+            } finally {
+                physical.End("输入会话已结束");
+                rumble?.SetInputAvailable(false); rumble?.Stop();
+                lock (outputGate) {
+                    accepting = false; input = null;
+                    // A failed optional backend must not prevent the physical stop/GATT cleanup.
+                    try { output.Update(default); }
+                    catch (Exception error) { AppLog.Write("warn", "清除游戏输入时输出已断开：" + error.Message); }
+                }
+                try { reportCharacteristic.ValueChanged -= Received; } catch (Exception) { }
+                SaveMotionCalibration();
+                motion = null; motionOutput = null;
+                if (motionConnection is not null) await motionConnection.DisposeAsync();
+                output.InputForwarded -= performance.RecordForward;
+                if (rumble is not null) {
+                    output.RumbleChanged -= XboxFeedback;
+                    if (output is ViiperGamepad native) native.NativeHaptics -= NativeFeedback;
+                    await rumble.DisposeAsync(); // bounded final stop while GATT/session are still alive
+                    var statistics = rumble.Status;
+                    AppLog.Write("info", $"本次震动：反馈 {statistics.Feedback} 次 · 写入 {statistics.Writes} 次 · 合并 {statistics.Coalesced} 次 · 最慢写入 {statistics.MaxWriteMilliseconds:F1} ms");
+                    if (output is ViiperGamepad nativeOutput) AppLog.Write("info", nativeOutput.FeedbackSummary);
+                }
+                haptics = null; hapticMessage = "连接手柄后可测试震动";
+                Interlocked.Exchange(ref nativeHapticAt, 0);
+                if (!physical.TransportLost && lane.IsUsable) {
+                    try { await lane.RunAsync("清理原按键通知", () => reportCharacteristic.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.None), CancellationToken.None, 2); }
+                    catch (Exception error) { AppLog.Write("warn", "原按键通知清理未完成：" + error.Message); }
+                }
+                try { if (session is not null) session.MaintainConnection = false; } catch (Exception) { }
+                AppLog.Write("info", "蓝牙连接已释放");
+                AppLog.Write("info", $"本次输入：{count} 份 · 整段平均 {count/Math.Max(clock.Elapsed.TotalSeconds,.001):F1} Hz（含断流等待） · R={seenRight:X2} L={seenLeft:X2} Extra={seenExtra:X2} · 摇杆最大行程 {leftTravel:P0}/{rightTravel:P0}");
+                var finalHealth = physical.Snapshot;
+                AppLog.Write("info", $"输入会话结束 · 原报告 {finalHealth.NativeReports} / 公共报告 {finalHealth.CommonReports} · 最后输入距今 {finalHealth.LastInputAgeSeconds:F2} 秒 · 最大间隔 {finalHealth.LongestGapMilliseconds:F1} ms · 恢复：{finalHealth.Recovery} · GATT 未确认阶段：{lane.FailedStage ?? "无"}");
+                var timing = performance.Snapshot;
+                if (timing.Samples > 0)
+                    AppLog.Write("info", $"本机转发最近 2 秒：中位 {timing.ForwardMedianMilliseconds:F2} ms · P95 {timing.ForwardP95Milliseconds:F2} ms · {timing.Samples} 样本（不含无线及游戏延迟）");
+            }
+        } finally {
+            if (session is not null) {
+                try { session.SessionStatusChanged -= SessionChanged; } catch (Exception) { }
+                try { session.MaintainConnection = false; } catch (Exception) { }
+            }
+        }
+    }
+
+    private sealed class ConnectionPreference(IDisposable? request) : IDisposable
+    {
+        private IDisposable? current = request;
+        public bool Release() {
+            var value = Interlocked.Exchange(ref current, null);
+            if (value is null) return false;
+            try { value.Dispose(); } catch (Exception) { }
+            return true;
+        }
+        public void Dispose() => Release();
     }
 
     private static IDisposable? TryRequestThroughput(BluetoothLEDevice device)
@@ -427,22 +538,25 @@ public sealed class ControllerService(AppSettings settings, EnhancementService e
         catch (Exception error) { AppLog.Write("warn", "蓝牙适配器使用默认连接参数：" + error.Message); return null; }
     }
 
-    private static async Task<StickCalibration[]> ReadCalibrationsAsync(GattCharacteristic command, GattCharacteristic response, CancellationToken token)
+    private static async Task<StickCalibration[]> ReadCalibrationsAsync(GattCharacteristic command, GattCharacteristic response, InputStreamSession physical, GattOperationLane lane, CancellationToken token)
     {
         TaskCompletionSource<byte[]>? pending = null;
         void Received(GattCharacteristic sender, GattValueChangedEventArgs args) {
-            var data = ReadBuffer(args.CharacteristicValue);
-            if (data.Length >= 8 && data[0] == 2 && data[1] == 1 && data[3] == 4) pending?.TrySetResult(data);
+            if (!physical.IsOpen) return;
+            try {
+                var data = ReadBuffer(args.CharacteristicValue);
+                if (data.Length >= 8 && data[0] == 2 && data[1] == 1 && data[3] == 4) pending?.TrySetResult(data);
+            } catch (Exception error) { pending?.TrySetException(error); }
         }
         response.ValueChanged += Received;
         try {
-            if (await NativeOperation.WaitAsync(response.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify), token, 10) != GattCommunicationStatus.Success)
+            if (await lane.RunAsync("订阅校准响应通知", () => response.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify), token, 10) != GattCommunicationStatus.Success)
                 throw new InvalidOperationException("无法读取摇杆校准数据");
             async Task<byte[]> Read(uint address) {
                 pending = new(TaskCreationOptions.RunContinuationsAsynchronously);
                 using var writer = new DataWriter();
                 writer.WriteBytes(ControllerProtocol.CalibrationReadRequest(address));
-                if (await NativeOperation.WaitAsync(command.WriteValueAsync(writer.DetachBuffer(), GattWriteOption.WriteWithoutResponse), token, 5) != GattCommunicationStatus.Success)
+                if (await lane.RunAsync("读取摇杆校准请求", () => command.WriteValueAsync(writer.DetachBuffer(), GattWriteOption.WriteWithoutResponse), token, 5) != GattCommunicationStatus.Success)
                     throw new IOException("手柄校准读取请求失败");
                 return ControllerProtocol.ParseCalibrationResponse(await pending.Task.WaitAsync(TimeSpan.FromSeconds(4), token), address);
             }
@@ -453,9 +567,12 @@ public sealed class ControllerService(AppSettings settings, EnhancementService e
             }
             return values.ToArray();
         } finally {
-            response.ValueChanged -= Received;
-            try { await NativeOperation.WaitAsync(response.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.None), CancellationToken.None, 2); }
-            catch (Exception) { }
+            pending = null;
+            try { response.ValueChanged -= Received; } catch (Exception) { }
+            if (!physical.TransportLost && lane.IsUsable) {
+                try { await lane.RunAsync("清理校准通知", () => response.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.None), CancellationToken.None, 2); }
+                catch (Exception error) { AppLog.Write("warn", "校准通知清理未完成：" + error.Message); }
+            }
         }
     }
 

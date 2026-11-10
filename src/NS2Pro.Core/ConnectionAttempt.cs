@@ -10,6 +10,8 @@ public sealed class ConnectionAttempt
         string reason = error is TimeoutException or OperationCanceledException ? "Windows 蓝牙操作超时，请重新长按 SYNC 后重试。" : error.Message;
         if (error is UnauthorizedAccessException || error.HResult == unchecked((int)0x80070005))
             reason = "Windows 拒绝访问手柄。请检查系统蓝牙权限，并退出其他手柄连接工具后重试。";
+        if (error is ObjectDisposedException || error.HResult == unchecked((int)0x80000013))
+            reason = "蓝牙会话已失效，请重新长按 SYNC 连接。反复出现时，请检查蓝牙驱动及其他连接工具。";
         return $"连接未完成 · {Stage}：{reason}";
     }
 }
